@@ -64,7 +64,7 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
         }
         saveThreshold = (totalNumberFrames/saveWeightsEveryXFrames)*saveWeightsEveryXFrames;
         ofstream learningConditionFile;
-        nameForLearningCondition = checkPointName+"-learningCondition-Frames"+to_string(saveThreshold)+"-finished.txt";
+        nameForLearningCondition = checkPointName+"-learningCondition-Frames"+to_string(static_cast<long long>(saveThreshold))+"-finished.txt";
         string previousNameForLearningCondition =checkPointName +"-learningCondition.txt";
         rename(previousNameForLearningCondition.c_str(), nameForLearningCondition.c_str());
         saveThreshold+=saveWeightsEveryXFrames;
@@ -162,7 +162,7 @@ void SarsaLearner::sanityCheck(){
 //To do: we do not want to save weights that are zero
 void SarsaLearner::saveCheckPoint(int episode, int totalNumberFrames, vector<float>& episodeResults,int& frequency,vector<int>& episodeFrames, vector<double>& episodeFps){
     ofstream learningConditionFile;
-    string newNameForLearningCondition = checkPointName+"-learningCondition-Frames"+to_string(saveThreshold)+"-writing.txt";
+    string newNameForLearningCondition = checkPointName+"-learningCondition-Frames"+to_string(static_cast<long long>(saveThreshold))+"-writing.txt";
     int renameReturnCode = rename(nameForLearningCondition.c_str(),newNameForLearningCondition.c_str());
     if (renameReturnCode == 0){
         nameForLearningCondition = newNameForLearningCondition;
@@ -181,7 +181,7 @@ void SarsaLearner::saveCheckPoint(int episode, int totalNumberFrames, vector<flo
     }
     
     //write parameters checkPoint
-    string currentCheckPointName = checkPointName+"-checkPoint-Frames"+to_string(saveThreshold)+"-writing.txt";
+    string currentCheckPointName = checkPointName+"-checkPoint-Frames"+to_string(static_cast<long long>(saveThreshold))+"-writing.txt";
     ofstream checkPointFile;
     checkPointFile.open(currentCheckPointName.c_str());
     checkPointFile<<(*agentRand)<<endl;
@@ -214,7 +214,7 @@ void SarsaLearner::saveCheckPoint(int episode, int totalNumberFrames, vector<flo
     checkPointFile<<endl;
     checkPointFile.close();
     
-    string previousVersionCheckPoint = checkPointName+"-checkPoint-Frames"+to_string(saveThreshold-saveWeightsEveryXFrames)+"-finished.txt";
+    string previousVersionCheckPoint = checkPointName+"-checkPoint-Frames"+to_string(static_cast<long long>(saveThreshold-saveWeightsEveryXFrames))+"-finished.txt";
     if((saveThreshold-saveWeightsEveryXFrames)%50000000 != 0){
         remove(previousVersionCheckPoint.c_str());
     }   
@@ -495,7 +495,7 @@ void SarsaLearner::groupFeatures(vector<long long>& activeFeatures){
             activeFeatures.push_back(groupIndex);
         }
         groups[groupIndex].features.clear();
-        groups[groupIndex].features.shrink_to_fit();
+//        groups[groupIndex].features.shrink_to_fit();
     }
 }
 
