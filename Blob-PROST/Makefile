@@ -11,8 +11,13 @@ USE_SDL     := 0
 # -D__USE_SDL Ensures we can use SDL to see the game screen
 # -D_GNU_SOURCE=1 means the compiler will use the GNU standard of compilation, the superset of all other standards under GNU C libraries.
 # -D_REENTRANT causes the compiler to use thread safe (i.e. re-entrant) versions of several functions in the C library.
+<<<<<<< HEAD
 FLAGS := -O3 -I$(ALE)/src -L$(ALE) -lale -lz
 CXX := g++ -std=c++0x
+=======
+CXX := g++ -std=c++11
+FLAGS := -O3 -I$(ALE)/src -I/opt/local/include -L$(ALE)
+>>>>>>> ubuntu-config
 OUT_FILE := learner
 # Search for library 'ale' and library 'z' when linking.
 LDFLAGS := -lale -lz -lm
@@ -25,7 +30,7 @@ endif
 all: learnerBlobTime
 
 learnerBlobTime: bin/mainBlobTime.o bin/Mathematics.o bin/Parameters.o bin/Timer.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o
-	$(CXX) $(FLAGS) bin/mainBlobTime.o bin/Mathematics.o bin/Timer.o bin/Parameters.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o -o learnerBlobTime
+	$(CXX) $(FLAGS) bin/mainBlobTime.o bin/Mathematics.o bin/Timer.o bin/Parameters.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o -o learnerBlobTime $(LDFLAGS) -o $(OUT_FILE)
 
 bin/mainBlobTime.o: mainBlobTime.cpp
 	$(CXX) $(FLAGS) -c mainBlobTime.cpp -o bin/mainBlobTime.o

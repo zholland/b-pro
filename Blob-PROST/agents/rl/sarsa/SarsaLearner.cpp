@@ -392,8 +392,14 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
     std::ofstream resultFile;
     resultFile.open(oldName.c_str());
     
+    std::string actionRewardName = "record/action-reward.txt";
+    std::ofstream actionRewardFile;
+    actionRewardFile.open(actionRewardName.c_str());
+
+    int episode = 0;
     //Repeat (for each episode):
-    for(int episode = 1; episode < numEpisodesEval; episode++){
+    for(int count = 0; count < numEpisodesEval;){
+        episode++;
         //Repeat(for each step of episode) until game is over:
         gettimeofday(&tvBegin, NULL);
         //random no-op
@@ -412,9 +418,13 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
             updateQValues(F, Q);       //Update Q-values for each possible action
             currentAction = epsilonGreedy(Q);
             //Take action, observe reward and next state:
+            ale.saveScreenPNG("record/" + std::to_string(count) + ".png");
             reward = ale.act(actions[currentAction]);
+            actionRewardFile<<actions[currentAction]<<" "<<reward<<std::endl;
+            count++;
             cumReward  += reward;
         }
+        ale.saveScreenPNG("record/" + std::to_string(count) + ".png");
         gettimeofday(&tvEnd, NULL);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
         elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec)/1000000.0;
@@ -428,6 +438,7 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
         prevCumReward = cumReward;
     }
     resultFile<<"Average: "<<(double)cumReward/numEpisodesEval<<std::endl;
+    actionRewardFile.close();
     resultFile.close();
     rename(oldName.c_str(),newName.c_str());
     
