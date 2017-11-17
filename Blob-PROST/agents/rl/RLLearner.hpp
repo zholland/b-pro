@@ -51,6 +51,7 @@ protected:
      * @return int action to be taken
      */
     int epsilonGreedy(vector<float> &QValues);
+    int epsilonGreedy2(vector<float> &QValues);
     int epsilonGreedy(vector<float> &QValues,int episode);
     
     /**

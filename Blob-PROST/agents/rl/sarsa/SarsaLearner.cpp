@@ -391,8 +391,10 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
     std::string newName = checkPointName+"-Result-finished.txt";
     std::ofstream resultFile;
     resultFile.open(oldName.c_str());
-    
-    std::string actionRewardName = "record/action-reward.txt";
+   
+    std::string recordPath = "/local/ssd/gholland/"+checkPointName+"_record/";
+ 
+    std::string actionRewardName = recordPath + "action-reward.txt";
     std::ofstream actionRewardFile;
     actionRewardFile.open(actionRewardName.c_str());
 
@@ -416,15 +418,15 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
             features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), F);
             groupFeatures(F);
             updateQValues(F, Q);       //Update Q-values for each possible action
-            currentAction = epsilonGreedy(Q);
+            currentAction = epsilonGreedy2(Q);
             //Take action, observe reward and next state:
-            ale.saveScreenPNG("record/" + std::to_string(count) + ".png");
+            ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
             reward = ale.act(actions[currentAction]);
-            actionRewardFile<<actions[currentAction]<<" "<<reward<<std::endl;
+            actionRewardFile<<actions[currentAction]<<" "<<reward<<" "<<ale.game_over()<<std::endl;
             count++;
             cumReward  += reward;
         }
-        ale.saveScreenPNG("record/" + std::to_string(count) + ".png");
+        ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
         gettimeofday(&tvEnd, NULL);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
         elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec)/1000000.0;
