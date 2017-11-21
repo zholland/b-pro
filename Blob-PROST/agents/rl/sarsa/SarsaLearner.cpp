@@ -24,6 +24,7 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
     
     totalNumberFrames = 0.0;
     maxFeatVectorNorm = 1;
+    maxPlanFeatVectorNorm = 1;
     saveThreshold =0;
     
     delta = 0.0;
@@ -40,6 +41,9 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
     noOpMax = param->getNoOpMax();
     numStepsPerAction = param->getNumStepsPerAction();
     
+    planningSteps = param->getPlanningSteps();
+    planningIterations = param->getPlanningIterations();    
+
     for(int i = 0; i < numActions; i++){
         //Initialize Q;
         Q.push_back(0);
@@ -277,9 +281,15 @@ void SarsaLearner::learnPolicy(ALEInterface& ale, Features *features){
     vector<float> episodeResults;
     vector<int> episodeFrames;
     vector<double> episodeFps;
-    
+ 
+    int bufferIndex = 0;
+    int bufferSize = 10000;
+    ALEState stateBuffer [bufferSize];    
+   
     long long trueFeatureSize = 0;
+    long long truePlanFeatureSize = 0;
     long long trueFnextSize = 0;
+    long long truePlanFnextSize = 0;
     
     //Repeat (for each episode):
     //This is going to be interrupted by the ALE code since I set max_num_frames beforehand
@@ -332,6 +342,8 @@ void SarsaLearner::learnPolicy(ALEInterface& ale, Features *features){
                 groupFeatures(Fnext);
                 updateQValues(Fnext, Qnext);     //Update Q-values for the new active features
                 nextAction = epsilonGreedy(Qnext,episode);
+		stateBuffer[bufferIndex % bufferSize] = ale.cloneState();
+		bufferIndex += 1;
             }
             else{
                 nextAction = 0;
@@ -354,6 +366,66 @@ void SarsaLearner::learnPolicy(ALEInterface& ale, Features *features){
                     w[a][idx] = w[a][idx] + learningRate * delta * e[a][idx];
                 }
             }
+	    // Planning step
+	    if (bufferIndex > bufferSize) {
+	    ale.saveState();
+	    for (int n = 0; n < planningIterations; n++) {
+		//int idx = rand() % bufferSize;
+		//cout << idx << "\n";
+		ALEState state = stateBuffer[rand() % bufferSize];	
+		ale.restoreState(state);
+
+		//cout << "Planning step " << n;		
+
+		Fplan.clear();
+        	features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
+        	truePlanFeatureSize = Fplan.size();
+        	groupFeatures(Fplan);
+        	updateQValues(Fplan, Q);
+        
+        	currentAction = epsilonGreedy(Q,episode);
+	        reward.clear();
+            	reward.push_back(0.0);
+            	reward.push_back(0.0);
+            
+            	//sanityCheck();
+            	//Take action, observe reward and next state:
+            	act(ale, currentAction, reward);
+            	if (!ale.game_over()) {
+                	//Obtain active features in the new state:
+                	FnextPlan.clear();
+                	features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), FnextPlan);
+                	truePlanFnextSize = FnextPlan.size();
+                	groupFeatures(FnextPlan);
+                	updateQValues(FnextPlan, Qnext);     //Update Q-values for the new active features
+                	nextAction = epsilonGreedy(Qnext,episode);
+            	}
+            	else{
+                	nextAction = 0;
+                	for(unsigned int i = 0; i < Qnext.size(); i++){
+                    		Qnext[i] = 0;
+                	}
+            	}
+            	//To ensure the learning rate will never increase along
+            	//the time, Marc used such approach in his JAIR paper
+            	if (truePlanFeatureSize > maxPlanFeatVectorNorm){
+                	maxPlanFeatVectorNorm = truePlanFeatureSize;
+                	learningRate = alpha/maxPlanFeatVectorNorm;
+            	}
+            	delta = reward[0] + gamma * Qnext[nextAction] - Q[currentAction];
+            
+            	//Update weights vector:
+            	for(unsigned int a = 0; a < nonZeroElig.size(); a++){
+                	for(unsigned int i = 0; i < nonZeroElig[a].size(); i++){
+                    	long long idx = nonZeroElig[a][i];
+                    	w[a][idx] = w[a][idx] + learningRate * delta;
+                	}
+            	}
+
+	
+	    }
+	    ale.loadState();
+	    }
             F = Fnext;
             trueFeatureSize = trueFnextSize;
             currentAction = nextAction;
@@ -420,19 +492,19 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
             updateQValues(F, Q);       //Update Q-values for each possible action
             currentAction = epsilonGreedy2(Q);
             //Take action, observe reward and next state:
-            ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
+            //ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
             reward = ale.act(actions[currentAction]);
-            actionRewardFile<<actions[currentAction]<<" "<<reward<<" "<<ale.game_over()<<std::endl;
+            //actionRewardFile<<actions[currentAction]<<" "<<reward<<" "<<ale.game_over()<<std::endl;
             count++;
             cumReward  += reward;
         }
-        ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
+      //  ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
         gettimeofday(&tvEnd, NULL);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
         elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec)/1000000.0;
         double fps = double(ale.getEpisodeFrameNumber())/elapsedTime;
         
-        resultFile<<"Episode "<<episode<<": "<<cumReward-prevCumReward<<std::endl;
+    //    resultFile<<"Episode "<<episode<<": "<<cumReward-prevCumReward<<std::endl;
         printf("episode: %d,\t%.0f points,\tavg. return: %.1f,\t%d frames,\t%.0f fps\n",
                episode, (cumReward-prevCumReward), (double)cumReward/(episode), ale.getEpisodeFrameNumber(), fps);
         features->clearCash();

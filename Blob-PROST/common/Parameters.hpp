@@ -59,6 +59,8 @@ private:
     int finalNumberOfBlobs;
     int randomNoOp;
     int noOpMax;
+    int planningSteps;
+    int planningIterations;
     
     std::mt19937 agentRand;
     
@@ -235,6 +237,8 @@ private:
     void setFinalNumberOfBlobs(int a);
     void setRandomNoOp(int a);
     void setNoOpMax(int a);
+    void setPlanningSteps(int a);
+    void setPlanningIterations(int a);
     
 public:
     /**
@@ -379,4 +383,6 @@ public:
     std::mt19937* getRNG();
     int getRandomNoOp();
     int getNoOpMax();
+    int getPlanningSteps();
+    int getPlanningIterations();
 };

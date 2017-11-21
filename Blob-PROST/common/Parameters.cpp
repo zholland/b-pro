@@ -245,6 +245,18 @@ void Parameters::parseParametersFromConfigFile(std::string cfgFileName){
     }else{
         this->setNoOpMax(0);
     }
+
+    if (parameters.count("PLANNING_STEPS")>0){
+        this->setPlanningSteps(atoi(parameters["PLANNING_STEPS"].c_str()));
+    }else{
+        this->setPlanningSteps(0);
+    }
+
+    if (parameters.count("PLANNING_ITERATIONS")>0){
+        this->setPlanningIterations(atoi(parameters["PLANNING_ITERATIONS"].c_str()));
+    }else{
+        this->setPlanningIterations(0);
+    }   
 }
 
 void Parameters::setSaveTrajectoryPath(std::string name){
@@ -509,6 +521,14 @@ void Parameters::setNoOpMax(int a){
     this->noOpMax = a;
 }
 
+void Parameters::setPlanningSteps(int a){
+    this->planningSteps = a;
+}
+
+void Parameters::setPlanningIterations(int a){
+    this->planningIterations = a;
+}
+
 std::string Parameters::getPathToWeightsFiles(){
     return this->pathToWeightsFiles;
 }
@@ -575,4 +595,12 @@ int Parameters::getRandomNoOp(){
 
 int Parameters::getNoOpMax(){
     return this->noOpMax;
+}
+
+int Parameters::getPlanningSteps(){
+    return this->planningSteps;
+}
+
+int Parameters::getPlanningIterations(){
+    return this->planningIterations;
 }
