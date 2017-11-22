@@ -29,6 +29,7 @@ private:
     float alpha, delta, lambda, traceThreshold;
     float learningRate;
     int currentAction, nextAction;
+    int currentPlanAction, nextPlanAction;
     long long numFeatures;
     int toSaveWeightsAfterLearning, saveWeightsEveryXFrames, toSaveCheckPoint;
 
@@ -50,13 +51,17 @@ private:
     
     vector<long long> F;					//Set of features active
     vector<long long> Fplan;					//Set of features active
+    vector<long long> firstFplan;					//Set of features active
     vector<long long> Fnext;              //Set of features active in next state
     vector<long long> FnextPlan;              //Set of features active in next state
     vector<float> Q;               //Q(a) entries
     vector<float> Qnext;           //Q(a) entries for next action
+    vector<float> Qplan;
     vector<vector<float> > e;       //Eligibility trace
+    vector<vector<float> > ePlan;       //Eligibility trace
     vector<vector<float> > w;     //Theta, weights vector
-    vector<vector<long long> >nonZeroElig;//To optimize the implementation
+    vector<vector<long long>> nonZeroElig;//To optimize the implementation
+//    vector<vector<long long>> planNonZeroElig;//To optimize the implementation
     //vector<vector<long long> > featureSeen;
     unordered_map<long long,long long> featureTranslate;
     vector<Group> groups;

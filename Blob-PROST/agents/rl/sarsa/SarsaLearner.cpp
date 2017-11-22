@@ -11,12 +11,16 @@
 
 #ifndef TIMER_H
 #define TIMER_H
+
 #include "../../../common/Timer.hpp"
+
 #endif
+
 #include "SarsaLearner.hpp"
 #include <stdio.h>
 #include <math.h>
 #include <set>
+
 using namespace std;
 //using google::dense_hash_map;
 
@@ -25,8 +29,8 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
     totalNumberFrames = 0.0;
     maxFeatVectorNorm = 1;
     maxPlanFeatVectorNorm = 1;
-    saveThreshold =0;
-    
+    saveThreshold = 0;
+
     delta = 0.0;
     alpha = param->getAlpha();
     learningRate = alpha;
@@ -40,13 +44,14 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
     randomNoOp = param->getRandomNoOp();
     noOpMax = param->getNoOpMax();
     numStepsPerAction = param->getNumStepsPerAction();
-    
-    planningSteps = param->getPlanningSteps();
-    planningIterations = param->getPlanningIterations();    
 
-    for(int i = 0; i < numActions; i++){
+    planningSteps = param->getPlanningSteps();
+    planningIterations = param->getPlanningIterations();
+
+    for (int i = 0; i < numActions; i++) {
         //Initialize Q;
         Q.push_back(0);
+        Qplan.push_back(0);
         Qnext.push_back(0);
         //Initialize e:
         e.push_back(vector<float>());
@@ -56,107 +61,105 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
     episodePassed = 0;
     featureTranslate.clear();
     featureTranslate.max_load_factor(0.5);
-    if(toSaveCheckPoint){
+    if (toSaveCheckPoint) {
         checkPointName = param->getCheckPointName();
         //load CheckPoint
         ifstream checkPointToLoad;
-        string checkPointLoadName = checkPointName+"-checkPoint.txt";
+        string checkPointLoadName = checkPointName + "-checkPoint.txt";
         checkPointToLoad.open(checkPointLoadName.c_str());
-        if (checkPointToLoad.is_open()){
+        if (checkPointToLoad.is_open()) {
             loadCheckPoint(checkPointToLoad);
-            remove(checkPointLoadName.c_str());
+//            remove(checkPointLoadName.c_str());
         }
-        saveThreshold = (totalNumberFrames/saveWeightsEveryXFrames)*saveWeightsEveryXFrames;
+        saveThreshold = (totalNumberFrames / saveWeightsEveryXFrames) * saveWeightsEveryXFrames;
         ofstream learningConditionFile;
         nameForLearningCondition = checkPointName+"-learningCondition-Frames"+to_string(static_cast<long long>(saveThreshold))+"-finished.txt";
         string previousNameForLearningCondition =checkPointName +"-learningCondition.txt";
         rename(previousNameForLearningCondition.c_str(), nameForLearningCondition.c_str());
-        saveThreshold+=saveWeightsEveryXFrames;
+        saveThreshold += saveWeightsEveryXFrames;
         learningConditionFile.open(nameForLearningCondition, ios_base::app);
         learningConditionFile.close();
     }
 }
 
-SarsaLearner::~SarsaLearner(){}
+SarsaLearner::~SarsaLearner() {}
 
-void SarsaLearner::updateQValues(vector<long long> &Features, vector<float> &QValues){
+void SarsaLearner::updateQValues(vector<long long> &Features, vector<float> &QValues) {
     unsigned long long featureSize = Features.size();
-    for(int a = 0; a < numActions; ++a){
+    for (int a = 0; a < numActions; ++a) {
         float sumW = 0;
-        for(unsigned long long i = 0; i < featureSize; ++i){
-            sumW = sumW + w[a][Features[i]]*groups[Features[i]].numFeatures;
+        for (unsigned long long i = 0; i < featureSize; ++i) {
+            sumW = sumW + w[a][Features[i]] * groups[Features[i]].numFeatures;
         }
         QValues[a] = sumW;
     }
 }
 
-void SarsaLearner::updateReplTrace(int action, vector<long long> &Features){
+void SarsaLearner::updateReplTrace(int action, vector<long long> &Features) {
     //e <- gamma * lambda * e
-    for(unsigned int a = 0; a < nonZeroElig.size(); a++){
+    for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
         long long numNonZero = 0;
-        for(unsigned long long i = 0; i < nonZeroElig[a].size(); i++){
+        for (unsigned long long i = 0; i < nonZeroElig[a].size(); i++) {
             long long idx = nonZeroElig[a][i];
             //To keep the trace sparse, if it is
             //less than a threshold it is zero-ed.
             e[a][idx] = gamma * lambda * e[a][idx];
-            if(e[a][idx] < traceThreshold){
+            if (e[a][idx] < traceThreshold) {
                 e[a][idx] = 0;
-            }
-            else{
+            } else {
                 nonZeroElig[a][numNonZero] = idx;
                 numNonZero++;
             }
         }
         nonZeroElig[a].resize(numNonZero);
     }
-    
+
     //For all i in Fa:
-    for(unsigned int i = 0; i < F.size(); i++){
+    for (unsigned int i = 0; i < F.size(); i++) {
         long long idx = Features[i];
         //If the trace is zero it is not in the vector
         //of non-zeros, thus it needs to be added
-        if(e[action][idx] == 0){
+        if (e[action][idx] == 0) {
             nonZeroElig[action].push_back(idx);
         }
         e[action][idx] = 1;
     }
 }
 
-void SarsaLearner::updateAcumTrace(int action, vector<long long> &Features){
+void SarsaLearner::updateAcumTrace(int action, vector<long long> &Features) {
     //e <- gamma * lambda * e
-    for(unsigned int a = 0; a < nonZeroElig.size(); a++){
+    for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
         long long numNonZero = 0;
-        for(unsigned int i = 0; i < nonZeroElig[a].size(); i++){
+        for (unsigned int i = 0; i < nonZeroElig[a].size(); i++) {
             long long idx = nonZeroElig[a][i];
             //To keep the trace sparse, if it is
             //less than a threshold it is zero-ed.
             e[a][idx] = gamma * lambda * e[a][idx];
-            if(e[a][idx] < traceThreshold){
+            if (e[a][idx] < traceThreshold) {
                 e[a][idx] = 0;
-            }
-            else{
+            } else {
                 nonZeroElig[a][numNonZero] = idx;
                 numNonZero++;
             }
         }
         nonZeroElig[a].resize(numNonZero);
     }
-    
+
     //For all i in Fa:
-    for(unsigned int i = 0; i < F.size(); i++){
+    for (unsigned int i = 0; i < F.size(); i++) {
         long long idx = Features[i];
         //If the trace is zero it is not in the vector
         //of non-zeros, thus it needs to be added
-        if(e[action][idx] == 0){
+        if (e[action][idx] == 0) {
             nonZeroElig[action].push_back(idx);
         }
         e[action][idx] += 1;
     }
 }
 
-void SarsaLearner::sanityCheck(){
-    for(int i = 0; i < numActions; i++){
-        if(fabs(Q[i]) > 10e7 || Q[i] != Q[i] /*NaN*/){
+void SarsaLearner::sanityCheck() {
+    for (int i = 0; i < numActions; i++) {
+        if (fabs(Q[i]) > 10e7 || Q[i] != Q[i] /*NaN*/) {
             printf("It seems your algorithm diverged!\n");
             exit(0);
         }
@@ -164,76 +167,85 @@ void SarsaLearner::sanityCheck(){
 }
 
 //To do: we do not want to save weights that are zero
-void SarsaLearner::saveCheckPoint(int episode, int totalNumberFrames, vector<float>& episodeResults,int& frequency,vector<int>& episodeFrames, vector<double>& episodeFps){
+void SarsaLearner::saveCheckPoint(int episode, int totalNumberFrames, vector<float> &episodeResults, int &frequency,
+                                  vector<int> &episodeFrames, vector<double> &episodeFps) {
     ofstream learningConditionFile;
-    string newNameForLearningCondition = checkPointName+"-learningCondition-Frames"+to_string(static_cast<long long>(saveThreshold))+"-writing.txt";
-    int renameReturnCode = rename(nameForLearningCondition.c_str(),newNameForLearningCondition.c_str());
-    if (renameReturnCode == 0){
+    string newNameForLearningCondition =
+            checkPointName + "-learningCondition-Frames" + to_string(static_cast<long long>(saveThreshold)) +
+            "-writing.txt";
+    int renameReturnCode = rename(nameForLearningCondition.c_str(), newNameForLearningCondition.c_str());
+    if (renameReturnCode == 0) {
         nameForLearningCondition = newNameForLearningCondition;
         learningConditionFile.open(nameForLearningCondition.c_str(), ios_base::app);
         int numEpisode = episodeResults.size();
-        for (int index = 0;index<numEpisode;index++){
-            learningConditionFile <<"Episode "<<episode-numEpisode+1+index<<": "<<episodeResults[index]<<" points,  "<<episodeFrames[index]<<" frames,  "<<episodeFps[index]<<" fps."<<endl;
+        for (int index = 0; index < numEpisode; index++) {
+            learningConditionFile << "Episode " << episode - numEpisode + 1 + index << ": " << episodeResults[index]
+                                  << " points,  " << episodeFrames[index] << " frames,  " << episodeFps[index]
+                                  << " fps." << endl;
         }
         episodeResults.clear();
         episodeFrames.clear();
         episodeFps.clear();
         learningConditionFile.close();
-        newNameForLearningCondition.replace(newNameForLearningCondition.end()-11,newNameForLearningCondition.end()-4,"finished");
-        rename(nameForLearningCondition.c_str(),newNameForLearningCondition.c_str());
+        newNameForLearningCondition.replace(newNameForLearningCondition.end() - 11,
+                                            newNameForLearningCondition.end() - 4, "finished");
+        rename(nameForLearningCondition.c_str(), newNameForLearningCondition.c_str());
         nameForLearningCondition = newNameForLearningCondition;
     }
-    
+
     //write parameters checkPoint
     string currentCheckPointName = checkPointName+"-checkPoint-Frames"+to_string(static_cast<long long>(saveThreshold))+"-writing.txt";
     ofstream checkPointFile;
     checkPointFile.open(currentCheckPointName.c_str());
-    checkPointFile<<(*agentRand)<<endl;
-    checkPointFile<<totalNumberFrames<<endl;
-    checkPointFile << episode<<endl;
-    checkPointFile << firstReward<<endl;
-    checkPointFile << maxFeatVectorNorm<<endl;
-    checkPointFile << numGroups<<endl;
-    checkPointFile << featureTranslate.size()<<endl;
+    checkPointFile << (*agentRand) << endl;
+    checkPointFile << totalNumberFrames << endl;
+    checkPointFile << episode << endl;
+    checkPointFile << firstReward << endl;
+    checkPointFile << maxFeatVectorNorm << endl;
+    checkPointFile << numGroups << endl;
+    checkPointFile << featureTranslate.size() << endl;
     vector<int> nonZeroWeights;
-    for (unsigned long long groupIndex=0; groupIndex<numGroups;++groupIndex){
+    for (unsigned long long groupIndex = 0; groupIndex < numGroups; ++groupIndex) {
         nonZeroWeights.clear();
-        for (unsigned long long a=0; a<w.size();a++){
-            if (w[a][groupIndex]!=0){
+        for (unsigned long long a = 0; a < w.size(); a++) {
+            if (w[a][groupIndex] != 0) {
                 nonZeroWeights.push_back(a);
             }
         }
-        checkPointFile<<nonZeroWeights.size();
-        for (int i=0;i<nonZeroWeights.size();++i){
+        checkPointFile << nonZeroWeights.size();
+        for (int i = 0; i < nonZeroWeights.size(); ++i) {
             int action = nonZeroWeights[i];
-            checkPointFile<<" "<<action<<" "<<w[action][groupIndex];
+            checkPointFile << " " << action << " " << w[action][groupIndex];
         }
-        checkPointFile<<"\t";
+        checkPointFile << "\t";
     }
     checkPointFile << endl;
-    
-    for (auto it=featureTranslate.begin(); it!=featureTranslate.end();++it){
-        checkPointFile<<it->first<<" "<<it->second<<"\t";
+
+    for (auto it = featureTranslate.begin(); it != featureTranslate.end(); ++it) {
+        checkPointFile << it->first << " " << it->second << "\t";
     }
-    checkPointFile<<endl;
+    checkPointFile << endl;
     checkPointFile.close();
     
     string previousVersionCheckPoint = checkPointName+"-checkPoint-Frames"+to_string(static_cast<long long>(saveThreshold-saveWeightsEveryXFrames))+"-finished.txt";
     if((saveThreshold-saveWeightsEveryXFrames)%50000000 != 0){
         remove(previousVersionCheckPoint.c_str());
-    }   
+    }
     string oldCheckPointName = currentCheckPointName;
-    currentCheckPointName.replace(currentCheckPointName.end()-11,currentCheckPointName.end()-4,"finished");
-    rename(oldCheckPointName.c_str(),currentCheckPointName.c_str());
-    
+    currentCheckPointName.replace(currentCheckPointName.end() - 11, currentCheckPointName.end() - 4, "finished");
+    rename(oldCheckPointName.c_str(), currentCheckPointName.c_str());
+
 }
 
-void SarsaLearner::loadCheckPoint(ifstream& checkPointToLoad){
+void SarsaLearner::loadCheckPoint(ifstream &checkPointToLoad) {
     checkPointToLoad >> (*agentRand);
+    cout << (*agentRand) << "\n";
     checkPointToLoad >> totalNumberFrames;
-    while (totalNumberFrames<1000){
+    cout << totalNumberFrames << "\n";
+    while (totalNumberFrames < 1000) {
         checkPointToLoad >> totalNumberFrames;
     }
+    cout << totalNumberFrames << "\n";
     checkPointToLoad >> episodePassed;
     checkPointToLoad >> firstReward;
     checkPointToLoad >> maxFeatVectorNorm;
@@ -241,250 +253,259 @@ void SarsaLearner::loadCheckPoint(ifstream& checkPointToLoad){
     checkPointToLoad >> numGroups;
     long long numberOfFeaturesSeen;
     checkPointToLoad >> numberOfFeaturesSeen;
-    for (unsigned long long index=0;index<numGroups;++index){
+    for (unsigned long long index = 0; index < numGroups; ++index) {
         Group agroup;
         agroup.numFeatures = 0;
         agroup.features.clear();
         groups.push_back(agroup);
     }
-    for (unsigned a =0;a<w.size();a++){
-        w[a].resize(numGroups,0.00);
-        e[a].resize(numGroups,0.00);
+    for (unsigned a = 0; a < w.size(); a++) {
+        w[a].resize(numGroups, 0.00);
+        e[a].resize(numGroups, 0.00);
     }
     int action;
     float weight;
     int numNonZeroWeights;
-    for (unsigned long long groupIndex=0; groupIndex<numGroups;++groupIndex){
+    for (unsigned long long groupIndex = 0; groupIndex < numGroups; ++groupIndex) {
         checkPointToLoad >> numNonZeroWeights;
-        for (unsigned int i=0; i<numNonZeroWeights;++i){
-            checkPointToLoad >> action; checkPointToLoad >> weight;
+        for (unsigned int i = 0; i < numNonZeroWeights; ++i) {
+            checkPointToLoad >> action;
+            checkPointToLoad >> weight;
             w[action][groupIndex] = weight;
         }
     }
-    
+
     long long featureIndex;
     long long featureToGroup;
-    while (checkPointToLoad >> featureIndex && checkPointToLoad >> featureToGroup){
+    while (checkPointToLoad >> featureIndex && checkPointToLoad >> featureToGroup) {
         featureTranslate[featureIndex] = featureToGroup;
-        groups[featureToGroup-1].numFeatures+=1;
+        groups[featureToGroup - 1].numFeatures += 1;
     }
     checkPointToLoad.close();
 }
 
-void SarsaLearner::learnPolicy(ALEInterface& ale, Features *features){
-    
+void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
+
     struct timeval tvBegin, tvEnd, tvDiff;
     vector<float> reward;
     double elapsedTime;
     double cumReward = 0, prevCumReward = 0;
-    sawFirstReward = 0; firstReward = 1.0;
+    sawFirstReward = 0;
+    firstReward = 1.0;
     vector<float> episodeResults;
     vector<int> episodeFrames;
     vector<double> episodeFps;
- 
+
     int bufferIndex = 0;
-    int bufferSize = 10000;
-    ALEState stateBuffer [bufferSize];    
-   
+    int bufferSize = 5000;
+    ALEState stateBuffer[bufferSize];
+
     long long trueFeatureSize = 0;
     long long truePlanFeatureSize = 0;
     long long trueFnextSize = 0;
     long long truePlanFnextSize = 0;
-    
+
     //Repeat (for each episode):
     //This is going to be interrupted by the ALE code since I set max_num_frames beforehand
-    for(int episode = episodePassed+1; totalNumberFrames < totalNumberOfFramesToLearn; episode++){
+    for (int episode = episodePassed + 1; totalNumberFrames < totalNumberOfFramesToLearn; episode++) {
         //random no-op
         unsigned int noOpNum = 0;
-        if (randomNoOp){
-            noOpNum = (*agentRand)()%(noOpMax)+1;
-            for (int i=0;i<noOpNum;++i){
+        if (randomNoOp) {
+            noOpNum = (*agentRand)() % (noOpMax) + 1;
+            for (int i = 0; i < noOpNum; ++i) {
                 ale.act(actions[0]);
             }
         }
-        
+
         //We have to clean the traces every episode:
-        for(unsigned int a = 0; a < nonZeroElig.size(); a++){
-            for(unsigned long long i = 0; i < nonZeroElig[a].size(); i++){
+        for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
+            for (unsigned long long i = 0; i < nonZeroElig[a].size(); i++) {
                 long long idx = nonZeroElig[a][i];
                 e[a][idx] = 0.0;
             }
             nonZeroElig[a].clear();
         }
-        
+
         F.clear();
         features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), F);
         trueFeatureSize = F.size();
         groupFeatures(F);
         updateQValues(F, Q);
-        
-        currentAction = epsilonGreedy(Q,episode);
+
+        currentAction = epsilonGreedy(Q, episode);
         gettimeofday(&tvBegin, NULL);
         int lives = ale.lives();
         //Repeat(for each step of episode) until game is over:
         //This also stops when the maximum number of steps per episode is reached
-        while(!ale.game_over()){
+        while (!ale.game_over()) {
             reward.clear();
             reward.push_back(0.0);
             reward.push_back(0.0);
             updateQValues(F, Q);
             updateReplTrace(currentAction, F);
-            
+
             sanityCheck();
             //Take action, observe reward and next state:
             act(ale, currentAction, reward);
-            cumReward  += reward[1];
-            if(!ale.game_over()){
+            cumReward += reward[1];
+            if (!ale.game_over()) {
                 //Obtain active features in the new state:
                 Fnext.clear();
                 features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fnext);
                 trueFnextSize = Fnext.size();
                 groupFeatures(Fnext);
                 updateQValues(Fnext, Qnext);     //Update Q-values for the new active features
-                nextAction = epsilonGreedy(Qnext,episode);
-		stateBuffer[bufferIndex % bufferSize] = ale.cloneState();
-		bufferIndex += 1;
-            }
-            else{
+                nextAction = epsilonGreedy(Qnext, episode);
+                stateBuffer[bufferIndex % bufferSize] = ale.cloneState();
+                bufferIndex += 1;
+            } else {
                 nextAction = 0;
-                for(unsigned int i = 0; i < Qnext.size(); i++){
+                for (unsigned int i = 0; i < Qnext.size(); i++) {
                     Qnext[i] = 0;
                 }
             }
             //To ensure the learning rate will never increase along
             //the time, Marc used such approach in his JAIR paper
-            if (trueFeatureSize > maxFeatVectorNorm){
+            if (trueFeatureSize > maxFeatVectorNorm) {
                 maxFeatVectorNorm = trueFeatureSize;
-                learningRate = alpha/maxFeatVectorNorm;
+                learningRate = alpha / maxFeatVectorNorm;
             }
             delta = reward[0] + gamma * Qnext[nextAction] - Q[currentAction];
-            
+
             //Update weights vector:
-            for(unsigned int a = 0; a < nonZeroElig.size(); a++){
-                for(unsigned int i = 0; i < nonZeroElig[a].size(); i++){
+            for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
+                for (unsigned int i = 0; i < nonZeroElig[a].size(); i++) {
                     long long idx = nonZeroElig[a][i];
                     w[a][idx] = w[a][idx] + learningRate * delta * e[a][idx];
                 }
             }
-	    // Planning step
-	    if (bufferIndex > bufferSize) {
-	    ale.saveState();
-	    for (int n = 0; n < planningIterations; n++) {
-		//int idx = rand() % bufferSize;
-		//cout << idx << "\n";
-		ALEState state = stateBuffer[rand() % bufferSize];	
-		ale.restoreState(state);
+            // Planning step
+            if (bufferIndex > bufferSize) {
+                ale.saveState();
+                for (int n = 0; n < planningIterations; n++) {
+                    //int idx = rand() % bufferSize;
+                    //cout << idx << "\n";
+                    ALEState state = stateBuffer[rand() % bufferSize];
+                    ale.restoreState(state);
 
-		//cout << "Planning step " << n;		
+                    //cout << "Planning step " << n;
+                    int k = 0;
+                    int rewardSum = 0;
 
-		Fplan.clear();
-        	features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
-        	truePlanFeatureSize = Fplan.size();
-        	groupFeatures(Fplan);
-        	updateQValues(Fplan, Q);
-        
-        	currentAction = epsilonGreedy(Q,episode);
-	        reward.clear();
-            	reward.push_back(0.0);
-            	reward.push_back(0.0);
-            
-            	//sanityCheck();
-            	//Take action, observe reward and next state:
-            	act(ale, currentAction, reward);
-            	if (!ale.game_over()) {
-                	//Obtain active features in the new state:
-                	FnextPlan.clear();
-                	features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), FnextPlan);
-                	truePlanFnextSize = FnextPlan.size();
-                	groupFeatures(FnextPlan);
-                	updateQValues(FnextPlan, Qnext);     //Update Q-values for the new active features
-                	nextAction = epsilonGreedy(Qnext,episode);
-            	}
-            	else{
-                	nextAction = 0;
-                	for(unsigned int i = 0; i < Qnext.size(); i++){
-                    		Qnext[i] = 0;
-                	}
-            	}
-            	//To ensure the learning rate will never increase along
-            	//the time, Marc used such approach in his JAIR paper
-            	if (truePlanFeatureSize > maxPlanFeatVectorNorm){
-                	maxPlanFeatVectorNorm = truePlanFeatureSize;
-                	learningRate = alpha/maxPlanFeatVectorNorm;
-            	}
-            	delta = reward[0] + gamma * Qnext[nextAction] - Q[currentAction];
-            
-            	//Update weights vector:
-            	for(unsigned int a = 0; a < nonZeroElig.size(); a++){
-                	for(unsigned int i = 0; i < nonZeroElig[a].size(); i++){
-                    	long long idx = nonZeroElig[a][i];
-                    	w[a][idx] = w[a][idx] + learningRate * delta;
-                	}
-            	}
+                    firstFplan.clear();
+                    features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), firstFplan);
+                    truePlanFeatureSize = firstFplan.size();
+                    groupFeatures(firstFplan);
+                    updateQValues(firstFplan, Qplan);
 
-	
-	    }
-	    ale.loadState();
-	    }
+                    Fplan = firstFplan;
+                    int firstPlanAction = epsilonGreedy(Qplan, episode);
+                    currentPlanAction = firstPlanAction;
+                    while (k < planningSteps && !ale.game_over()) {
+                        k += 1;
+
+                        reward.clear();
+                        reward.push_back(0.0);
+                        reward.push_back(0.0);
+                        updateQValues(Fplan, Q);
+
+                        //sanityCheck();
+                        //Take action, observe reward and next state:
+                        act(ale, currentPlanAction, reward);
+                        rewardSum = reward[0] + gamma * rewardSum;
+                        if (!ale.game_over()) {
+                            //Obtain active features in the new state:
+                            FnextPlan.clear();
+                            features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), FnextPlan);
+                            truePlanFnextSize = FnextPlan.size();
+                            groupFeatures(FnextPlan);
+                            updateQValues(FnextPlan, Qnext);     //Update Q-values for the new active features
+                            nextPlanAction = epsilonGreedy(Qnext, episode);
+                        } else {
+                            nextPlanAction = 0;
+                            for (unsigned int i = 0; i < Qnext.size(); i++) {
+                                Qnext[i] = 0;
+                            }
+                        }
+                        Fplan = FnextPlan;
+                        truePlanFeatureSize = truePlanFnextSize;
+                        currentPlanAction = nextPlanAction;
+                    }
+                    //To ensure the learning rate will never increase along
+                    //the time, Marc used such approach in his JAIR paper
+//                    if (truePlanFeatureSize > maxPlanFeatVectorNorm) {
+//                        maxPlanFeatVectorNorm = truePlanFeatureSize;
+//                        learningRate = alpha / maxPlanFeatVectorNorm;
+//                    }
+                    delta = rewardSum + std::pow(gamma, k) * Qnext[nextPlanAction] - Qplan[firstPlanAction];
+
+                    //Update weights vector:
+                    for (unsigned int i = 0; i < Fplan.size(); i++) {
+                        w[firstPlanAction][i] = w[firstPlanAction][i] + learningRate * delta;
+                    }
+                }
+                ale.loadState();
+            } // End planning
             F = Fnext;
             trueFeatureSize = trueFnextSize;
             currentAction = nextAction;
         }
         gettimeofday(&tvEnd, NULL);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
-        elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec)/1000000.0;
-        
-        double fps = double(ale.getEpisodeFrameNumber())/elapsedTime;
-        printf("episode: %d,\t%.0f points,\tavg. return: %.1f,\t%d frames,\t%.0f fps\n",
-               episode, cumReward - prevCumReward, (double)cumReward/(episode),
-               ale.getEpisodeFrameNumber(), fps);
-        episodeResults.push_back(cumReward-prevCumReward);
+        elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec) / 1000000.0;
+
+        double fps = double(ale.getEpisodeFrameNumber()) / elapsedTime;
+        printf("episode: %d,\t%.0f points,\tavg. return: %.1f,\t%d frames,\t%.0f fps,\tlearning rate: %f\n",
+               episode, cumReward - prevCumReward, (double) cumReward / (episode),
+               ale.getEpisodeFrameNumber(), fps, learningRate);
+        episodeResults.push_back(cumReward - prevCumReward);
         episodeFrames.push_back(ale.getEpisodeFrameNumber());
         episodeFps.push_back(fps);
-        totalNumberFrames += ale.getEpisodeFrameNumber()-noOpNum*numStepsPerAction;
+        totalNumberFrames += ale.getEpisodeFrameNumber() - noOpNum * numStepsPerAction;
         prevCumReward = cumReward;
         features->clearCash();
         ale.reset_game();
-        if(toSaveCheckPoint && totalNumberFrames>saveThreshold){
-            saveCheckPoint(episode,totalNumberFrames,episodeResults,saveWeightsEveryXFrames,episodeFrames,episodeFps);
-            saveThreshold+=saveWeightsEveryXFrames;
+        if (toSaveCheckPoint && totalNumberFrames > saveThreshold) {
+            saveCheckPoint(episode, totalNumberFrames, episodeResults, saveWeightsEveryXFrames, episodeFrames,
+                           episodeFps);
+            saveThreshold += saveWeightsEveryXFrames;
         }
     }
 }
 
-void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
+void SarsaLearner::evaluatePolicy(ALEInterface &ale, Features *features) {
     double reward = 0;
     double cumReward = 0;
     double prevCumReward = 0;
     struct timeval tvBegin, tvEnd, tvDiff;
     double elapsedTime;
-    
-    std::string oldName = checkPointName+"-Result-writing.txt";
-    std::string newName = checkPointName+"-Result-finished.txt";
+
+    std::string oldName = checkPointName + "-Result-writing.txt";
+    std::string newName = checkPointName + "-Result-finished.txt";
     std::ofstream resultFile;
     resultFile.open(oldName.c_str());
-   
-    std::string recordPath = "/local/ssd/gholland/"+checkPointName+"_record/";
- 
+
+    std::string recordPath = "/local/ssd/gholland/" + checkPointName + "_record/";
+
     std::string actionRewardName = recordPath + "action-reward.txt";
     std::ofstream actionRewardFile;
     actionRewardFile.open(actionRewardName.c_str());
 
     int episode = 0;
     //Repeat (for each episode):
-    for(int count = 0; count < numEpisodesEval;){
+    for (int count = 0; count < numEpisodesEval;) {
         episode++;
         //Repeat(for each step of episode) until game is over:
         gettimeofday(&tvBegin, NULL);
         //random no-op
         unsigned int noOpNum;
-        if (randomNoOp){
-            noOpNum = (*agentRand)()%(noOpMax)+1;
-            for (int i=0;i<noOpNum;++i){
+        if (randomNoOp) {
+            noOpNum = (*agentRand)() % (noOpMax) + 1;
+            for (int i = 0; i < noOpNum; ++i) {
                 ale.act(actions[0]);
             }
         }
-        for(int step = 0; !ale.game_over() && step < episodeLength; step++){
+        for (int step = 0; !ale.game_over() && step < episodeLength; step++) {
             //Get state and features active on that state:
             F.clear();
             features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), F);
@@ -496,87 +517,88 @@ void SarsaLearner::evaluatePolicy(ALEInterface& ale, Features *features){
             reward = ale.act(actions[currentAction]);
             //actionRewardFile<<actions[currentAction]<<" "<<reward<<" "<<ale.game_over()<<std::endl;
             count++;
-            cumReward  += reward;
+            cumReward += reward;
         }
-      //  ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
+        //  ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
         gettimeofday(&tvEnd, NULL);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
-        elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec)/1000000.0;
-        double fps = double(ale.getEpisodeFrameNumber())/elapsedTime;
-        
-    //    resultFile<<"Episode "<<episode<<": "<<cumReward-prevCumReward<<std::endl;
+        elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec) / 1000000.0;
+        double fps = double(ale.getEpisodeFrameNumber()) / elapsedTime;
+
+        //    resultFile<<"Episode "<<episode<<": "<<cumReward-prevCumReward<<std::endl;
         printf("episode: %d,\t%.0f points,\tavg. return: %.1f,\t%d frames,\t%.0f fps\n",
-               episode, (cumReward-prevCumReward), (double)cumReward/(episode), ale.getEpisodeFrameNumber(), fps);
+               episode, (cumReward - prevCumReward), (double) cumReward / (episode), ale.getEpisodeFrameNumber(), fps);
         features->clearCash();
         ale.reset_game();
         prevCumReward = cumReward;
     }
-    resultFile<<"Average: "<<(double)cumReward/numEpisodesEval<<std::endl;
+    resultFile << "Average: " << (double) cumReward / numEpisodesEval << std::endl;
     actionRewardFile.close();
     resultFile.close();
-    rename(oldName.c_str(),newName.c_str());
-    
+    rename(oldName.c_str(), newName.c_str());
+
 }
 
-void SarsaLearner::groupFeatures(vector<long long>& activeFeatures){
+void SarsaLearner::groupFeatures(vector<long long> &activeFeatures) {
     vector<long long> activeGroupIndices;
-    
+
     int newGroup = 0;
-    for (unsigned long long i = 0; i <activeFeatures.size();++i){
+    for (unsigned long long i = 0; i < activeFeatures.size(); ++i) {
         long long featureIndex = activeFeatures[i];
-        if (featureTranslate[featureIndex] == 0){
-            if (newGroup){
+        if (featureTranslate[featureIndex] == 0) {
+            if (newGroup) {
                 featureTranslate[featureIndex] = numGroups;
-                groups[numGroups-1].numFeatures+=1;
-            }else{
+                groups[numGroups - 1].numFeatures += 1;
+            } else {
                 newGroup = 1;
                 Group agroup;
                 agroup.numFeatures = 1;
                 agroup.features.clear();
                 groups.push_back(agroup);
-                for (unsigned int action=0;action<w.size();++action){
+                for (unsigned int action = 0; action < w.size(); ++action) {
                     w[action].push_back(0.0);
                     e[action].push_back(0.0);
                 }
                 ++numGroups;
                 featureTranslate[featureIndex] = numGroups;
             }
-        }else{
-            long long groupIndex = featureTranslate[featureIndex]-1;
+        } else {
+            long long groupIndex = featureTranslate[featureIndex] - 1;
             auto it = &groups[groupIndex].features;
-            if (it->size() == 0){
+            if (it->size() == 0) {
                 activeGroupIndices.push_back(groupIndex);
             }
             it->push_back(featureIndex);
         }
     }
-    
+
     activeFeatures.clear();
-    if (newGroup){
-        activeFeatures.push_back(groups.size()-1);
+    if (newGroup) {
+        activeFeatures.push_back(groups.size() - 1);
     }
-    
-    for (unsigned long long index=0;index<activeGroupIndices.size();++index){
+
+    for (unsigned long long index = 0; index < activeGroupIndices.size(); ++index) {
         long long groupIndex = activeGroupIndices[index];
-        if (groups[groupIndex].features.size()!=groups[groupIndex].numFeatures && groups[groupIndex].features.size()!=0){
+        if (groups[groupIndex].features.size() != groups[groupIndex].numFeatures &&
+            groups[groupIndex].features.size() != 0) {
             Group agroup;
             agroup.numFeatures = groups[groupIndex].features.size();
             agroup.features.clear();
             groups.push_back(agroup);
             ++numGroups;
-            for (unsigned long long i =0; i<groups[groupIndex].features.size();++i){
+            for (unsigned long long i = 0; i < groups[groupIndex].features.size(); ++i) {
                 featureTranslate[groups[groupIndex].features[i]] = numGroups;
             }
-            activeFeatures.push_back(numGroups-1);
-            for (unsigned a = 0;a<w.size();++a){
+            activeFeatures.push_back(numGroups - 1);
+            for (unsigned a = 0; a < w.size(); ++a) {
                 w[a].push_back(w[a][groupIndex]);
                 e[a].push_back(e[a][groupIndex]);
-                if (e[a].back()>=traceThreshold ){
-                    nonZeroElig[a].push_back(numGroups-1);
+                if (e[a].back() >= traceThreshold) {
+                    nonZeroElig[a].push_back(numGroups - 1);
                 }
             }
             groups[groupIndex].numFeatures = groups[groupIndex].numFeatures - groups[groupIndex].features.size();
-        }else if(groups[groupIndex].features.size()==groups[groupIndex].numFeatures){
+        } else if (groups[groupIndex].features.size() == groups[groupIndex].numFeatures) {
             activeFeatures.push_back(groupIndex);
         }
         groups[groupIndex].features.clear();
@@ -584,37 +606,36 @@ void SarsaLearner::groupFeatures(vector<long long>& activeFeatures){
     }
 }
 
-void SarsaLearner::saveWeightsToFile(string suffix){
-    std::ofstream weightsFile ((nameWeightsFile + suffix).c_str());
-    if(weightsFile.is_open()){
+void SarsaLearner::saveWeightsToFile(string suffix) {
+    std::ofstream weightsFile((nameWeightsFile + suffix).c_str());
+    if (weightsFile.is_open()) {
         weightsFile << w.size() << " " << w[0].size() << std::endl;
-        for(unsigned int i = 0; i < w.size(); i++){
-            for(unsigned int j = 0; j < w[i].size(); j++){
-                if(w[i][j] != 0){
+        for (unsigned int i = 0; i < w.size(); i++) {
+            for (unsigned int j = 0; j < w[i].size(); j++) {
+                if (w[i][j] != 0) {
                     weightsFile << i << " " << j << " " << w[i][j] << std::endl;
                 }
             }
         }
         weightsFile.close();
-    }
-    else{
+    } else {
         printf("Unable to open file to write weights.\n");
     }
 }
 
-void SarsaLearner::loadWeights(){
+void SarsaLearner::loadWeights() {
     string line;
     int nActions, nFeatures;
     int i, j;
     double value;
-    
-    std::ifstream weightsFile (pathWeightsFileToLoad.c_str());
-    
+
+    std::ifstream weightsFile(pathWeightsFileToLoad.c_str());
+
     weightsFile >> nActions >> nFeatures;
     assert(nActions == numActions);
     assert(nFeatures == numFeatures);
-    
-    while(weightsFile >> i >> j >> value){
+
+    while (weightsFile >> i >> j >> value) {
         w[i][j] = value;
     }
 }
