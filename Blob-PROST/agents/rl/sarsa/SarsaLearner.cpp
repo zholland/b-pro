@@ -47,6 +47,7 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
 
     planningSteps = param->getPlanningSteps();
     planningIterations = param->getPlanningIterations();
+    planBufferSize = param->getPlanBufferSize();
 
     for (int i = 0; i < numActions; i++) {
         //Initialize Q;
@@ -297,8 +298,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
     vector<double> episodeFps;
 
     int bufferIndex = 0;
-    int bufferSize = 5000;
-    ALEState stateBuffer[bufferSize];
+    vector<ALEState> stateBuffer(planBufferSize);
 
     long long trueFeatureSize = 0;
     long long truePlanFeatureSize = 0;
@@ -356,7 +356,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 groupFeatures(Fnext);
                 updateQValues(Fnext, Qnext);     //Update Q-values for the new active features
                 nextAction = epsilonGreedy(Qnext, episode);
-                stateBuffer[bufferIndex % bufferSize] = ale.cloneState();
+                stateBuffer[bufferIndex % planBufferSize] = ale.cloneState();
                 bufferIndex += 1;
             } else {
                 nextAction = 0;
@@ -380,12 +380,12 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 }
             }
             // Planning step
-            if (bufferIndex > bufferSize) {
+            if (bufferIndex > planBufferSize) {
                 ale.saveState();
                 for (int n = 0; n < planningIterations; n++) {
                     //int idx = rand() % bufferSize;
                     //cout << idx << "\n";
-                    ALEState state = stateBuffer[rand() % bufferSize];
+                    ALEState state = stateBuffer[rand() % planBufferSize];
                     ale.restoreState(state);
 
                     //cout << "Planning step " << n;

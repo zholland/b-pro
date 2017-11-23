@@ -256,7 +256,13 @@ void Parameters::parseParametersFromConfigFile(std::string cfgFileName){
         this->setPlanningIterations(atoi(parameters["PLANNING_ITERATIONS"].c_str()));
     }else{
         this->setPlanningIterations(0);
-    }   
+    }  
+
+    if (parameters.count("PLAN_BUFFER_SIZE")>0){
+        this->setPlanBufferSize(atoi(parameters["PLAN_BUFFER_SIZE"].c_str()));
+    }else{
+        this->setPlanBufferSize(1);
+    }
 }
 
 void Parameters::setSaveTrajectoryPath(std::string name){
@@ -529,6 +535,10 @@ void Parameters::setPlanningIterations(int a){
     this->planningIterations = a;
 }
 
+void Parameters::setPlanBufferSize(int a){
+    this->planBufferSize = a;
+}
+
 std::string Parameters::getPathToWeightsFiles(){
     return this->pathToWeightsFiles;
 }
@@ -603,4 +613,8 @@ int Parameters::getPlanningSteps(){
 
 int Parameters::getPlanningIterations(){
     return this->planningIterations;
+}
+
+int Parameters::getPlanBufferSize(){
+    return this->planBufferSize;
 }
