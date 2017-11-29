@@ -55,8 +55,10 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
         Qnext.push_back(0);
         //Initialize e:
         e.push_back(vector<float>());
+        ePlan.push_back(vector<float>());
         w.push_back(vector<float>());
         nonZeroElig.push_back(vector<long long>());
+        planNonZeroElig.push_back(vector<long long>());
     }
     episodePassed = 0;
     featureTranslate.clear();
@@ -123,6 +125,37 @@ void SarsaLearner::updateReplTrace(int action, vector<long long> &Features) {
             nonZeroElig[action].push_back(idx);
         }
         e[action][idx] = 1;
+    }
+}
+
+void SarsaLearner::updatePlanReplTrace(int action, vector<long long> &Features) {
+    //e <- gamma * lambda * e
+    for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
+        long long numNonZero = 0;
+        for (unsigned long long i = 0; i < planNonZeroElig[a].size(); i++) {
+            long long idx = planNonZeroElig[a][i];
+            //To keep the trace sparse, if it is
+            //less than a threshold it is zero-ed.
+            ePlan[a][idx] = gamma * lambda * ePlan[a][idx];
+            if (ePlan[a][idx] < traceThreshold) {
+                ePlan[a][idx] = 0;
+            } else {
+                planNonZeroElig[a][numNonZero] = idx;
+                numNonZero++;
+            }
+        }
+        planNonZeroElig[a].resize(numNonZero);
+    }
+
+    //For all i in Fa:
+    for (unsigned int i = 0; i < Fplan.size(); i++) {
+        long long idx = Features[i];
+        //If the trace is zero it is not in the vector
+        //of non-zeros, thus it needs to be added
+        if (ePlan[action][idx] == 0) {
+            planNonZeroElig[action].push_back(idx);
+        }
+        ePlan[action][idx] = 1;
     }
 }
 
@@ -262,6 +295,7 @@ void SarsaLearner::loadCheckPoint(ifstream &checkPointToLoad) {
     for (unsigned a = 0; a < w.size(); a++) {
         w[a].resize(numGroups, 0.00);
         e[a].resize(numGroups, 0.00);
+        ePlan[a].resize(numGroups, 0.00);
     }
     int action;
     float weight;
@@ -297,7 +331,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
     vector<double> episodeFps;
 
     int bufferIndex = 0;
-    int bufferSize = 5000;
+    int bufferSize = 10000;
     ALEState stateBuffer[bufferSize];
 
     long long trueFeatureSize = 0;
@@ -388,19 +422,27 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                     ALEState state = stateBuffer[rand() % bufferSize];
                     ale.restoreState(state);
 
+                    // Clean plan traces
+                    for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
+                        for (unsigned long long i = 0; i < planNonZeroElig[a].size(); i++) {
+                            long long idx = planNonZeroElig[a][i];
+                            ePlan[a][idx] = 0.0;
+                        }
+                        planNonZeroElig[a].clear();
+                    }
+
                     //cout << "Planning step " << n;
                     int k = 0;
                     int rewardSum = 0;
 
-                    firstFplan.clear();
-                    features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), firstFplan);
-                    truePlanFeatureSize = firstFplan.size();
-                    groupFeatures(firstFplan);
-                    updateQValues(firstFplan, Qplan);
+                    Fplan.clear();
+                    features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
+                    truePlanFeatureSize = Fplan.size();
+                    groupPlanFeatures(Fplan);
+                    updateQValues(Fplan, Q);
 
-                    Fplan = firstFplan;
-                    int firstPlanAction = epsilonGreedy(Qplan, episode);
-                    currentPlanAction = firstPlanAction;
+                    currentPlanAction = epsilonGreedy(Q, episode);
+
                     while (k < planningSteps && !ale.game_over()) {
                         k += 1;
 
@@ -408,17 +450,17 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                         reward.push_back(0.0);
                         reward.push_back(0.0);
                         updateQValues(Fplan, Q);
+                        updatePlanReplTrace(currentPlanAction, Fplan);
 
                         //sanityCheck();
                         //Take action, observe reward and next state:
                         act(ale, currentPlanAction, reward);
-                        rewardSum = reward[0] + gamma * rewardSum;
                         if (!ale.game_over()) {
                             //Obtain active features in the new state:
                             FnextPlan.clear();
                             features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), FnextPlan);
                             truePlanFnextSize = FnextPlan.size();
-                            groupFeatures(FnextPlan);
+                            groupPlanFeatures(FnextPlan);
                             updateQValues(FnextPlan, Qnext);     //Update Q-values for the new active features
                             nextPlanAction = epsilonGreedy(Qnext, episode);
                         } else {
@@ -427,6 +469,16 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                                 Qnext[i] = 0;
                             }
                         }
+                        delta = reward[0] + gamma * Qnext[nextPlanAction] - Q[currentPlanAction];
+
+                        //Update weights vector:
+                        for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
+                            for (unsigned int i = 0; i < planNonZeroElig[a].size(); i++) {
+                                long long idx = planNonZeroElig[a][i];
+                                w[a][idx] = w[a][idx] + learningRate * delta * ePlan[a][idx];
+                            }
+                        }
+
                         Fplan = FnextPlan;
                         truePlanFeatureSize = truePlanFnextSize;
                         currentPlanAction = nextPlanAction;
@@ -437,12 +489,6 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
 //                        maxPlanFeatVectorNorm = truePlanFeatureSize;
 //                        learningRate = alpha / maxPlanFeatVectorNorm;
 //                    }
-                    delta = rewardSum + std::pow(gamma, k) * Qnext[nextPlanAction] - Qplan[firstPlanAction];
-
-                    //Update weights vector:
-                    for (unsigned int i = 0; i < Fplan.size(); i++) {
-                        w[firstPlanAction][i] = w[firstPlanAction][i] + learningRate * delta;
-                    }
                 }
                 ale.loadState();
             } // End planning
@@ -525,14 +571,14 @@ void SarsaLearner::evaluatePolicy(ALEInterface &ale, Features *features) {
         elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec) / 1000000.0;
         double fps = double(ale.getEpisodeFrameNumber()) / elapsedTime;
 
-        //    resultFile<<"Episode "<<episode<<": "<<cumReward-prevCumReward<<std::endl;
+        resultFile<<"Episode "<<episode<<": "<<cumReward-prevCumReward<<std::endl;
         printf("episode: %d,\t%.0f points,\tavg. return: %.1f,\t%d frames,\t%.0f fps\n",
                episode, (cumReward - prevCumReward), (double) cumReward / (episode), ale.getEpisodeFrameNumber(), fps);
         features->clearCash();
         ale.reset_game();
         prevCumReward = cumReward;
     }
-    resultFile << "Average: " << (double) cumReward / numEpisodesEval << std::endl;
+    resultFile << "Average: " << (double) cumReward / (episode) << std::endl;
     actionRewardFile.close();
     resultFile.close();
     rename(oldName.c_str(), newName.c_str());
@@ -558,6 +604,7 @@ void SarsaLearner::groupFeatures(vector<long long> &activeFeatures) {
                 for (unsigned int action = 0; action < w.size(); ++action) {
                     w[action].push_back(0.0);
                     e[action].push_back(0.0);
+                    ePlan[action].push_back(0.0);
                 }
                 ++numGroups;
                 featureTranslate[featureIndex] = numGroups;
@@ -593,6 +640,7 @@ void SarsaLearner::groupFeatures(vector<long long> &activeFeatures) {
             for (unsigned a = 0; a < w.size(); ++a) {
                 w[a].push_back(w[a][groupIndex]);
                 e[a].push_back(e[a][groupIndex]);
+                ePlan[a].push_back(e[a][groupIndex]);
                 if (e[a].back() >= traceThreshold) {
                     nonZeroElig[a].push_back(numGroups - 1);
                 }
@@ -603,6 +651,74 @@ void SarsaLearner::groupFeatures(vector<long long> &activeFeatures) {
         }
         groups[groupIndex].features.clear();
 //        groups[groupIndex].features.shrink_to_fit();
+    }
+}
+
+void SarsaLearner::groupPlanFeatures(vector<long long> &activeFeatures) {
+    vector<long long> activeGroupIndices;
+
+    int newGroup = 0;
+    for (unsigned long long i = 0; i < activeFeatures.size(); ++i) {
+        long long featureIndex = activeFeatures[i];
+        if (featureTranslate[featureIndex] == 0) {
+            if (newGroup) {
+                featureTranslate[featureIndex] = numGroups;
+                groups[numGroups - 1].numFeatures += 1;
+            } else {
+                newGroup = 1;
+                Group agroup;
+                agroup.numFeatures = 1;
+                agroup.features.clear();
+                groups.push_back(agroup);
+                for (unsigned int action = 0; action < w.size(); ++action) {
+                    w[action].push_back(0.0);
+                    e[action].push_back(0.0);
+                    ePlan[action].push_back(0.0);
+                }
+                ++numGroups;
+                featureTranslate[featureIndex] = numGroups;
+            }
+        } else {
+            long long groupIndex = featureTranslate[featureIndex] - 1;
+            auto it = &groups[groupIndex].features;
+            if (it->size() == 0) {
+                activeGroupIndices.push_back(groupIndex);
+            }
+            it->push_back(featureIndex);
+        }
+    }
+
+    activeFeatures.clear();
+    if (newGroup) {
+        activeFeatures.push_back(groups.size() - 1);
+    }
+
+    for (unsigned long long index = 0; index < activeGroupIndices.size(); ++index) {
+        long long groupIndex = activeGroupIndices[index];
+        if (groups[groupIndex].features.size() != groups[groupIndex].numFeatures &&
+            groups[groupIndex].features.size() != 0) {
+            Group agroup;
+            agroup.numFeatures = groups[groupIndex].features.size();
+            agroup.features.clear();
+            groups.push_back(agroup);
+            ++numGroups;
+            for (unsigned long long i = 0; i < groups[groupIndex].features.size(); ++i) {
+                featureTranslate[groups[groupIndex].features[i]] = numGroups;
+            }
+            activeFeatures.push_back(numGroups - 1);
+            for (unsigned a = 0; a < w.size(); ++a) {
+                w[a].push_back(w[a][groupIndex]);
+                e[a].push_back(e[a][groupIndex]);
+                ePlan[a].push_back(e[a][groupIndex]);
+                if (ePlan[a].back() >= traceThreshold) {
+                    planNonZeroElig[a].push_back(numGroups - 1);
+                }
+            }
+            groups[groupIndex].numFeatures = groups[groupIndex].numFeatures - groups[groupIndex].features.size();
+        } else if (groups[groupIndex].features.size() == groups[groupIndex].numFeatures) {
+            activeFeatures.push_back(groupIndex);
+        }
+        groups[groupIndex].features.clear();
     }
 }
 

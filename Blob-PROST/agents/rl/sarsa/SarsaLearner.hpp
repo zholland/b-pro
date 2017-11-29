@@ -61,7 +61,7 @@ private:
     vector<vector<float> > ePlan;       //Eligibility trace
     vector<vector<float> > w;     //Theta, weights vector
     vector<vector<long long>> nonZeroElig;//To optimize the implementation
-//    vector<vector<long long>> planNonZeroElig;//To optimize the implementation
+    vector<vector<long long>> planNonZeroElig;//To optimize the implementation
     //vector<vector<long long> > featureSeen;
     unordered_map<long long,long long> featureTranslate;
     vector<Group> groups;
@@ -89,6 +89,7 @@ private:
      * the rule: e[action][i] = gamma * lambda * e[action][i]. It is possible to also define thresholding.
      */
     void updateReplTrace(int action, vector<long long> &Features);
+    void updatePlanReplTrace(int action, vector<long long> &Features);
     /**
      * When using Replacing traces, all values not related to the current action are set to 0, while the
      * values for the current action that their features are active are added 1. The traces decay following
@@ -106,6 +107,7 @@ private:
     void saveCheckPoint(int episode, int totalNumberFrames,  vector<float>& episodeResults, int& frequency, vector<int>& episodeFrames, vector<double>& episodeFps);
     void loadCheckPoint(ifstream& checkPointToLoad);
     void groupFeatures(vector<long long>& activeFeatures);
+    void groupPlanFeatures(vector<long long>& activeFeatures);
 public:
     SarsaLearner(ALEInterface& ale, Features *features, Parameters *param,int seed);
     /**
