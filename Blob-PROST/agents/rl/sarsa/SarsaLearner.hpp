@@ -34,6 +34,7 @@ private:
     int toSaveWeightsAfterLearning, saveWeightsEveryXFrames, toSaveCheckPoint;
 
     int planningIterations, planningSteps;
+    int planBufferSize;
     
     std::string nameWeightsFile, pathWeightsFileToLoad;
     std::string checkPointName;

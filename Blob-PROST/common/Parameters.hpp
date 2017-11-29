@@ -61,6 +61,7 @@ private:
     int noOpMax;
     int planningSteps;
     int planningIterations;
+    int planBufferSize;
     
     std::mt19937 agentRand;
     
@@ -239,6 +240,7 @@ private:
     void setNoOpMax(int a);
     void setPlanningSteps(int a);
     void setPlanningIterations(int a);
+    void setPlanBufferSize(int a);
     
 public:
     /**
@@ -385,4 +387,5 @@ public:
     int getNoOpMax();
     int getPlanningSteps();
     int getPlanningIterations();
+    int getPlanBufferSize();
 };
