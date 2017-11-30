@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <set>
+#include <queue>
 
 using namespace std;
 //using google::dense_hash_map;
@@ -319,6 +320,14 @@ void SarsaLearner::loadCheckPoint(ifstream &checkPointToLoad) {
     checkPointToLoad.close();
 }
 
+struct State {
+    double priority;
+    ALEState aleState;
+    bool operator<(const State& rhs) const {
+        return priority < rhs.priority;
+    }
+};
+
 void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
 
     struct timeval tvBegin, tvEnd, tvDiff;
@@ -331,8 +340,11 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
     vector<int> episodeFrames;
     vector<double> episodeFps;
 
+    std::priority_queue<State> stateBuffer;
     int bufferIndex = 0;
-    vector<ALEState> stateBuffer(planBufferSize);
+    vector<ALEState> precursorBuffer(10);
+    double priorityThreshold = 0.0;
+    double maxPriority = 0.0;
 
     long long trueFeatureSize = 0;
     long long truePlanFeatureSize = 0;
@@ -379,6 +391,10 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
             updateReplTrace(currentAction, F);
 
             sanityCheck();
+//            ALEState tmpState = ale.cloneState();
+//            State stateToSave = {0.0, ale.cloneState()};
+            precursorBuffer[bufferIndex % 10] = ale.cloneState();
+            bufferIndex += 1;
             //Take action, observe reward and next state:
             act(ale, currentAction, reward);
             cumReward += reward[1];
@@ -390,8 +406,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 groupFeatures(Fnext);
                 updateQValues(Fnext, Qnext);     //Update Q-values for the new active features
                 nextAction = epsilonGreedy(Qnext, episode);
-                stateBuffer[bufferIndex % planBufferSize] = ale.cloneState();
-                bufferIndex += 1;
+//                stateBuffer[bufferIndex % planBufferSize] = ale.cloneState();
             } else {
                 nextAction = 0;
                 for (unsigned int i = 0; i < Qnext.size(); i++) {
@@ -406,6 +421,17 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
             }
             delta = reward[0] + gamma * Qnext[nextAction] - Q[currentAction];
 
+            // Save state in queue
+            if (bufferIndex > 10) {
+                State stateToSave = {abs(delta), precursorBuffer[(bufferIndex - 10) % 10]};
+                if (stateToSave.priority > priorityThreshold) {
+                    stateBuffer.push(stateToSave);
+                }
+                if (stateToSave.priority > maxPriority) {
+                    maxPriority = stateToSave.priority;
+                }
+            }
+
             //Update weights vector:
             for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
                 for (unsigned int i = 0; i < nonZeroElig[a].size(); i++) {
@@ -414,13 +440,15 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 }
             }
             // Planning step
-            if (bufferIndex > planBufferSize) {
-                ale.saveState();
-                for (int n = 0; n < planningIterations; n++) {
+//            if (stateBuffer.size() > planBufferSize && !stateBuffer.empty()) {
+            ale.saveState();
+            for (int n = 0; n < planningIterations; n++) {
+                if (!stateBuffer.empty()) {
                     //int idx = rand() % bufferSize;
                     //cout << idx << "\n";
-                    ALEState state = stateBuffer[rand() % planBufferSize];
-                    ale.restoreState(state);
+                    State state = stateBuffer.top();
+                    ale.restoreState(state.aleState);
+                    stateBuffer.pop();
 
                     // Clean plan traces
                     for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
@@ -471,6 +499,10 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                         }
                         delta = reward[0] + gamma * Qnext[nextPlanAction] - Q[currentPlanAction];
 
+//                        if (abs(delta) > maxAbsDelta) {
+                        state.priority = abs(delta);
+//                        }
+
                         //Update weights vector:
                         for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
                             for (unsigned int i = 0; i < planNonZeroElig[a].size(); i++) {
@@ -483,6 +515,9 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                         truePlanFeatureSize = truePlanFnextSize;
                         currentPlanAction = nextPlanAction;
                     }
+                    if (state.priority > priorityThreshold) {
+                        stateBuffer.push(state);
+                    }
                     //To ensure the learning rate will never increase along
                     //the time, Marc used such approach in his JAIR paper
 //                    if (truePlanFeatureSize > maxPlanFeatVectorNorm) {
@@ -490,8 +525,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
 //                        learningRate = alpha / maxPlanFeatVectorNorm;
 //                    }
                 }
-                ale.loadState();
             } // End planning
+            ale.loadState();
             F = Fnext;
             trueFeatureSize = trueFnextSize;
             currentAction = nextAction;
@@ -504,6 +539,14 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
         printf("episode: %d,\t%.0f points,\tavg. return: %.1f,\t%d frames,\t%.0f fps,\tlearning rate: %f\n",
                episode, cumReward - prevCumReward, (double) cumReward / (episode),
                ale.getEpisodeFrameNumber(), fps, learningRate);
+        cout << "stateBuffer size: " << stateBuffer.size() << "\n";
+        cout << "priority threshold: " << priorityThreshold << "\n";
+        cout << "max priority: " << maxPriority << "\n";
+        if (stateBuffer.size() > 1000) {
+            priorityThreshold += maxPriority / 10.0;
+        } else if (stateBuffer.size() == 0) {
+            priorityThreshold -= maxPriority / 10.0;
+        }
         episodeResults.push_back(cumReward - prevCumReward);
         episodeFrames.push_back(ale.getEpisodeFrameNumber());
         episodeFps.push_back(fps);
