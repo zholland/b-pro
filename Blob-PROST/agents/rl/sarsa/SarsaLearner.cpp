@@ -332,16 +332,19 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
     vector<double> episodeFps;
 
     int bufferIndex = 0;
-    vector<ALEState> stateBuffer(planBufferSize);
+    vector<ALEState> stateBuffer(1);
+    ALEState firstState;
 
     long long trueFeatureSize = 0;
     long long truePlanFeatureSize = 0;
     long long trueFnextSize = 0;
     long long truePlanFnextSize = 0;
 
+    int stepCount = 0;
+
     //Repeat (for each episode):
     //This is going to be interrupted by the ALE code since I set max_num_frames beforehand
-    for (int episode = episodePassed + 1; totalNumberFrames < totalNumberOfFramesToLearn; episode++) {
+    for (int episode = episodePassed + 1; stepCount * 5 < totalNumberOfFramesToLearn; episode++) {
         //random no-op
         unsigned int noOpNum = 0;
         if (randomNoOp) {
@@ -359,6 +362,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
             }
             nonZeroElig[a].clear();
         }
+
+        firstState = ale.cloneState();
 
         F.clear();
         features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), F);
@@ -381,6 +386,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
             sanityCheck();
             //Take action, observe reward and next state:
             act(ale, currentAction, reward);
+            stepCount += 1;
             cumReward += reward[1];
             if (!ale.game_over()) {
                 //Obtain active features in the new state:
@@ -390,8 +396,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 groupFeatures(Fnext);
                 updateQValues(Fnext, Qnext);     //Update Q-values for the new active features
                 nextAction = epsilonGreedy(Qnext, episode);
-                stateBuffer[bufferIndex % planBufferSize] = ale.cloneState();
-                bufferIndex += 1;
+//                stateBuffer[bufferIndex % planBufferSize] = ale.cloneState();
+//                bufferIndex += 1;
             } else {
                 nextAction = 0;
                 for (unsigned int i = 0; i < Qnext.size(); i++) {
@@ -414,13 +420,13 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 }
             }
             // Planning step
-            if (bufferIndex > planBufferSize) {
+            if (stepCount * 5 < totalNumberOfFramesToLearn) {
                 ale.saveState();
                 for (int n = 0; n < planningIterations; n++) {
                     //int idx = rand() % bufferSize;
                     //cout << idx << "\n";
-                    ALEState state = stateBuffer[rand() % planBufferSize];
-                    ale.restoreState(state);
+//                    ALEState state = stateBuffer[rand() % planBufferSize];
+                    ale.restoreState(firstState);
 
                     // Clean plan traces
                     for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
@@ -443,7 +449,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
 
                     currentPlanAction = epsilonGreedy(Q, episode);
 
-                    while (k < planningSteps && !ale.game_over()) {
+                    while (!ale.game_over()) {
                         k += 1;
 
                         reward.clear();
@@ -455,6 +461,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                         //sanityCheck();
                         //Take action, observe reward and next state:
                         act(ale, currentPlanAction, reward);
+                        stepCount += 1;
                         if (!ale.game_over()) {
                             //Obtain active features in the new state:
                             FnextPlan.clear();
