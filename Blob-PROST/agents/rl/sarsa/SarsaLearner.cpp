@@ -344,7 +344,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
 
     //Repeat (for each episode):
     //This is going to be interrupted by the ALE code since I set max_num_frames beforehand
-    for (int episode = episodePassed + 1; stepCount * 5 < totalNumberOfFramesToLearn; episode++) {
+    for (int episode = episodePassed + 1; totalNumberFrames < totalNumberOfFramesToLearn; episode++) {
         //random no-op
         unsigned int noOpNum = 0;
         if (randomNoOp) {
@@ -514,7 +514,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
         episodeResults.push_back(cumReward - prevCumReward);
         episodeFrames.push_back(ale.getEpisodeFrameNumber());
         episodeFps.push_back(fps);
-        totalNumberFrames += ale.getEpisodeFrameNumber() - noOpNum * numStepsPerAction;
+        totalNumberFrames += stepCount * numStepsPerAction;
+        stepCount = 0;
         prevCumReward = cumReward;
         features->clearCash();
         ale.reset_game();
@@ -546,7 +547,7 @@ void SarsaLearner::evaluatePolicy(ALEInterface &ale, Features *features) {
 
     int episode = 0;
     //Repeat (for each episode):
-    for (int count = 0; count < numEpisodesEval;) {
+    for (int count = 0; episode < numEpisodesEval;) {
         episode++;
         //Repeat(for each step of episode) until game is over:
         gettimeofday(&tvBegin, NULL);
