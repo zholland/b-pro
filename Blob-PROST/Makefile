@@ -3,19 +3,21 @@
 # Author: Marlos C. Machado
 
 ALE := ../../Arcade-Learning-Environment
+TF := ../../arcade-env27/local/lib/python2.7/site-packages/tensorflow/python
+TFHEADERS := ../../arcade-env27/local/lib/python2.7/site-packages/tensorflow/include
 
 # Set this to 1 to enable SDL and display_screen
-USE_SDL     := 0
+USE_SDL     := 1
 
 # -O3 Optimize code (urns on all optimizations specified by -O2 and also turns on the -finline-functions, -funswitch-loops, -fpredictive-commoning, -fgcse-after-reload, -ftree-loop-vectorize, -ftree-slp-vectorize, -fvect-cost-model, -ftree-partial-pre and -fipa-cp-clone options).
 # -D__USE_SDL Ensures we can use SDL to see the game screen
 # -D_GNU_SOURCE=1 means the compiler will use the GNU standard of compilation, the superset of all other standards under GNU C libraries.
 # -D_REENTRANT causes the compiler to use thread safe (i.e. re-entrant) versions of several functions in the C library.
-FLAGS := -O3 -I$(ALE)/src -L$(ALE) -lale -lz
-CXX := g++ -std=c++0x
+FLAGS := -O3 -I$(ALE)/src -L$(ALE) -lale -lz -I$(TFHEADERS) -L$(TF) -ltensorflow -lpython2.7
+CXX := g++ -std=c++0x -D_GLIBCXX_USE_CXX11_ABI=0
 OUT_FILE := learner
 # Search for library 'ale' and library 'z' when linking.
-LDFLAGS := -lale -lz -lm
+LDFLAGS := -lale -lz -lm -ltensorflow -lpython2.7
 
 ifeq ($(strip $(USE_SDL)), 1)
   FLAGS +=  -D__USE_SDL `sdl-config --cflags --libs`
@@ -24,8 +26,8 @@ endif
 
 all: learnerBlobTime
 
-learnerBlobTime: bin/mainBlobTime.o bin/Mathematics.o bin/Parameters.o bin/Timer.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o
-	$(CXX) $(FLAGS) bin/mainBlobTime.o bin/Mathematics.o bin/Timer.o bin/Parameters.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o -o learnerBlobTime $(LDFLAGS) -o $(OUT_FILE)
+learnerBlobTime: bin/mainBlobTime.o bin/Mathematics.o bin/Parameters.o bin/Timer.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o bin/lodepng.o
+	$(CXX) $(FLAGS) bin/mainBlobTime.o bin/Mathematics.o bin/Timer.o bin/Parameters.o bin/Features.o bin/Background.o bin/BlobTimeFeatures.o bin/RLLearner.o bin/SarsaLearner.o bin/lodepng.o -o learnerBlobTime $(LDFLAGS) -o $(OUT_FILE)
 
 bin/mainBlobTime.o: mainBlobTime.cpp
 	$(CXX) $(FLAGS) -c mainBlobTime.cpp -o bin/mainBlobTime.o
@@ -53,7 +55,10 @@ bin/RLLearner.o: agents/rl/RLLearner.cpp
 
 bin/SarsaLearner.o: agents/rl/sarsa/SarsaLearner.cpp
 	$(CXX) $(FLAGS) -c agents/rl/sarsa/SarsaLearner.cpp -o bin/SarsaLearner.o
-		
+
+bin/lodepng.o: lodepng.cpp
+	$(CXX) $(FLAGS) -c lodepng.cpp -o bin/lodepng.o
+	
 clean:
 	rm -rf ${OUT_FILE} bin/*.o
 	rm -f learner*

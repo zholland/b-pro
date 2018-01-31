@@ -15,6 +15,12 @@
 #endif
 #include <vector>
 #include <unordered_map>
+
+#include <tensorflow/core/public/session.h>
+#include <tensorflow/core/platform/env.h>
+#include <tensorflow/core/protobuf/meta_graph.pb.h>
+#include <tensorflow/core/kernels/no_op.h>
+
 //#include <sparsehash/dense_hash_map>
 using namespace std;
 //using google::dense_hash_map;
@@ -78,6 +84,9 @@ private:
      * or NaN values. If so, it finishes the execution informing the algorithm has diverged.
      */
     void sanityCheck();
+
+    void oneHot(tensorflow::Tensor & tensor, int tensorSize, int index);
+
     /**
      * In Sarsa the Q-values (one per action) are updated as the sum of weights for that given action.
      * To avoid writing it more than once on the code, its update was extracted to a separate function.

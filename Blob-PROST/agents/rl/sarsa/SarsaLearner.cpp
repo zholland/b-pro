@@ -25,7 +25,19 @@
 #include <math.h>
 #include <set>
 
+#include "../../../lodepng.hpp"
+#include <iostream>
+
+#include <tensorflow/core/public/session.h>
+#include <tensorflow/core/platform/env.h>
+#include <tensorflow/core/protobuf/meta_graph.pb.h>
+#include <tensorflow/core/kernels/no_op.h>
+
+using namespace tensorflow;
 using namespace std;
+
+typedef unsigned char pixel_t;
+
 //using google::dense_hash_map;
 
 SarsaLearner::SarsaLearner(ALEInterface& ale, BlobTimeFeatures *features, Parameters *param,int seed) : RLLearner(ale, param,seed) {
@@ -335,6 +347,16 @@ void SarsaLearner::loadCheckPoint(ifstream &checkPointToLoad) {
     checkPointToLoad.close();
 }
 
+void SarsaLearner::oneHot(Tensor & tensor, int tensorSize, int index) {
+    for (int i = 0; i < tensorSize; i++) {
+        if (i == index) {
+            tensor.tensor<float, 3>()(0, 0, i) = 1.0;
+        } else {
+            tensor.tensor<float, 3>()(0, 0, i) = 0.0;
+        }
+    }
+}
+
 void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
     std::string actionFileName = checkPointName + "-actions.txt";
     std::ofstream actionFile;
@@ -364,28 +386,12 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
     }
 
     vector<ALEState> stateBuffer(actualBufferSize);
+    vector<float> rewardBuffer(actualBufferSize);
     vector<vector<vector<tuple<int,int>>>> prevBlobsBuffer(actualBufferSize);
     vector<vector<int>> prevBlobsActiveColorsBuffer(actualBufferSize);
 
     vector<vector<tuple<int,int>>> prevBlobsSave;
     vector<int> prevBlobsActiveColorsSave;
-/*
-vector<vector<tuple<int,int>>>& BlobTimeFeatures::getPrevBlobs(){
-    return previousBlobs;
-}
-
-void BlobTimeFeatures::setPrevBlobs(vector<vector<tuple<int,int>>>& newPrevBlobs){
-    previousBlobs = newPrevBlobs;
-}
-
-vector<int>& BlobTimeFeatures::getPrevBlobActiveColors() {
-    return previousBlobActiveColors;
-}
-
-void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveColors) {
-    previousBlobActiveColors = newPrevBlobActiveColors;
-}  */
-//    ALEState firstState;
 
     long long trueFeatureSize = 0;
     long long truePlanFeatureSize = 0;
@@ -393,6 +399,43 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
     long long truePlanFnextSize = 0;
 
     int stepCount = 0;
+
+    const string pathToGraph = "/home/zach/data_and_checkpoints/reward_fixed_hist_128/checkpoints_seaquest_fulldecode/checkpoint_inference.meta";
+    const string checkpointPath = "/home/zach/data_and_checkpoints/reward_fixed_hist_128/checkpoints_seaquest_fulldecode/checkpoint_inference";
+    // Init tensorflow session
+    tensorflow::SessionOptions options;
+    tensorflow::ConfigProto & config = options.config;
+    config.set_allow_soft_placement(true);
+    auto session = NewSession(options);
+    if (session == nullptr) {
+        throw runtime_error("Could not create Tensorflow session.");
+    }
+
+    Status status;
+    // Read in the protobuf graph we exported
+    MetaGraphDef graph_def;
+    status = ReadBinaryProto(Env::Default(), pathToGraph, &graph_def);
+    if (!status.ok()) {
+        throw runtime_error("Error reading graph definition from " + pathToGraph + ": " + status.ToString());
+    }
+
+    // Add the graph to the session
+    status = session->Create(graph_def.graph_def());
+    if (!status.ok()) {
+        throw runtime_error("Error creating graph: " + status.ToString());
+    }
+
+    // Read weights from the saved checkpoint
+    Tensor checkpointPathTensor(DT_STRING, TensorShape());
+    checkpointPathTensor.scalar<std::string>()() = checkpointPath;
+    status = session->Run(
+            {{ graph_def.saver_def().filename_tensor_name(), checkpointPathTensor },},
+            {},
+            {graph_def.saver_def().restore_op_name()},
+            nullptr);
+    if (!status.ok()) {
+        throw runtime_error("Error loading checkpoint from " + checkpointPath + ": " + status.ToString());
+    }
 
     //Repeat (for each episode):
     //This is going to be interrupted by the ALE code since I set max_num_frames beforehand
@@ -452,11 +495,13 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
                    if ((float) rand()/RAND_MAX < (float) actualBufferSize / bufferIndex) {
                        int randIndex = rand() % actualBufferSize;
                        stateBuffer[randIndex] = ale.cloneState();
+                       rewardBuffer[randIndex] = reward[1];
                        prevBlobsBuffer[randIndex] = features->getPrevBlobs();
                        prevBlobsActiveColorsBuffer[randIndex] = features->getPrevBlobActiveColors();
                    }
                 } else {
                     stateBuffer[bufferIndex % actualBufferSize] = ale.cloneState();
+                    rewardBuffer[bufferIndex % actualBufferSize] = reward[1];
                     prevBlobsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobs();
                     prevBlobsActiveColorsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobActiveColors();
 
@@ -489,13 +534,59 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
                 prevBlobsSave = features->getPrevBlobs();
                 prevBlobsActiveColorsSave = features->getPrevBlobActiveColors();
                 for (int n = 0; n < planningIterations; n++) {
-                    oldWeights.clear();
-                    oldWeights = w;
-                    int idx = rand() % actualBufferSize;
+//                    oldWeights.clear();
+//                    oldWeights = w;
+                    int idx = rand() % (actualBufferSize - 4);
                     ALEState state = stateBuffer[idx];
                     ale.restoreState(state);
                     features->setPrevBlobs(prevBlobsBuffer[idx]);
                     features->setPrevBlobActiveColors(prevBlobsActiveColorsBuffer[idx]);
+
+                    // Prime history
+                    std::vector<std::vector<unsigned char>> rawFrameHistoryVec(4);
+                    ale.getScreenRGB(rawFrameHistoryVec[0]);
+                    std::vector<float> rewardHistoryVec(3);
+
+                    for (int h = 1; h < 4; h++) {
+                        Fplan.clear();
+                        features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
+                        groupPlanFeatures(Fplan);
+                        state = stateBuffer[idx+h];
+                        ale.restoreState(state);
+                        ale.getScreenRGB(rawFrameHistoryVec[h]);
+                        rewardHistoryVec[h-1] = rewardBuffer[idx+h];
+                    }
+
+                    int height = 210;
+                    int width = 160;
+
+                    Tensor frame_history(DT_FLOAT, TensorShape({1,210,160,12}));
+                    for (int h = 0; h < 4; h++) {
+                        for (int y = 0; y < height; y++) {
+                            for (int x = 0; x < width; x++) {
+                                frame_history.tensor<float, 4>()(0, y, x, h*3+0) =
+                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 0] - 32.0694) / 255.0;
+                                frame_history.tensor<float, 4>()(0, y, x, h*3+1) =
+                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 1] - 44.1966) / 255.0;
+                                frame_history.tensor<float, 4>()(0, y, x, h*3+2) =
+                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 2] - 111.029)/ 255.0;
+                            }
+                        }
+                    }
+
+
+                    Tensor reward_history(DT_FLOAT, TensorShape({1, 3}));
+                    for (int h = 0; h < 3; h++) {
+                        reward_history.tensor<float, 2>()(0, h) = rewardHistoryVec[h];
+                    }
+
+                    Tensor actions(DT_FLOAT, TensorShape({1, 1, 18}));
+                    std::vector<std::pair<string, tensorflow::Tensor>> inputs = {
+                            { "frame_history", frame_history },
+                            { "reward_history", reward_history },
+                            { "actions", actions },
+                    };
+
                     // Clean plan traces
                     for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
                         for (unsigned long long i = 0; i < planNonZeroElig[a].size(); i++) {
@@ -511,7 +602,6 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
 
                     Fplan.clear();
                     features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
-                    //truePlanFeatureSize = Fplan.size();
                     trueFeatureSize = Fplan.size();
                     groupPlanFeatures(Fplan);
                     updateQValues(Fplan, Q);
@@ -526,19 +616,50 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
                         reward.push_back(0.0);
                         reward.push_back(0.0);
                         updateQValues(Fplan, Q);
-                        updateQValuesWithWeights(Fplan, oldWeightsQ, oldWeights);
-                        actionFile<<Mathematics::argmax(Q)<<" "<<Mathematics::argmax(oldWeightsQ)<<std::endl;
+//                        updateQValuesWithWeights(Fplan, oldWeightsQ, oldWeights);
+//                        actionFile<<Mathematics::argmax(Q)<<" "<<Mathematics::argmax(oldWeightsQ)<<std::endl;
                         updatePlanReplTrace(currentPlanAction, Fplan);
 
                         //sanityCheck();
                         //Take action, observe reward and next state:
-                        act(ale, currentPlanAction, reward);
+//                        act(ale, currentPlanAction, reward);
+                        oneHot(actions, 18, currentPlanAction);
+//                        std::cout<<currentPlanAction<<std::endl;
+
+                        // The session will initialize the outputs
+                        std::vector<tensorflow::Tensor> outputs;
+
+                        // Run the session
+                        status = session->Run({inputs},
+                                              {"prediction_model/transform/transform/conv10/prediction_model/transform/conv10:0",
+                                               "prediction_model/transform/transform/fc_reward_dec/prediction_model/transform/fc_reward_dec:0"},
+                                              {}, &outputs);
+                        if (!status.ok()) {
+                            std::cout << status.ToString() << "\n";
+                            throw runtime_error(status.ToString());
+                        }
+
+                        auto image_float = outputs[0].tensor<float,4>();
+                        auto plan_reward = outputs[1].scalar<float>();
+
+                        ALEScreen predicted_screen(210,160);
+                        std::vector<unsigned char> rgbScreen(210*160*3);
+
+                        for (int y = 0; y < height; y++) {
+                            for (int x = 0; x < width; x++) {
+                                rgbScreen[3 * width * y + 3 * x + 0] = (unsigned char) std::max(std::min((image_float(0, y, x, 0) * 255.0 + 32.0694), 255.0), 0.0);
+                                rgbScreen[3 * width * y + 3 * x + 1] = (unsigned char) std::max(std::min((image_float(0, y, x, 1) * 255.0 + 44.1966), 255.0), 0.0);
+                                rgbScreen[3 * width * y + 3 * x + 2] = (unsigned char) std::max(std::min((image_float(0, y, x, 2) * 255.0 + 111.029), 255.0), 0.0);
+                            }
+                        }
+
+                        ale.getALEScreenFromRGB(rgbScreen, predicted_screen);
+
                         stepCount += 1;
                         if (!ale.game_over()) {
                             //Obtain active features in the new state:
                             FnextPlan.clear();
-                            features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), FnextPlan);
-                            //truePlanFnextSize = FnextPlan.size();
+                            features->getActiveFeaturesIndices(predicted_screen, ale.getRAM(), FnextPlan);
                             trueFnextSize = FnextPlan.size();
                             groupPlanFeatures(FnextPlan);
                             updateQValues(FnextPlan, Qnext);     //Update Q-values for the new active features
@@ -555,7 +676,7 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
                             maxFeatVectorNorm = trueFeatureSize;
                             learningRate = alpha / maxFeatVectorNorm;
                         }
-                        delta = reward[0] + gamma * Qnext[nextPlanAction] - Q[currentPlanAction];
+                        delta = (float)plan_reward(0) + gamma * Qnext[nextPlanAction] - Q[currentPlanAction];
 
                         //Update weights vector:
                         for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
@@ -566,20 +687,9 @@ void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveCol
                         }
 
                         Fplan = FnextPlan;
-                        //truePlanFeatureSize = truePlanFnextSize;
                         trueFeatureSize = trueFnextSize;
                         currentPlanAction = nextPlanAction;
                     }
-                    ////To ensure the learning rate will never increase along
-                    ////the time, Marc used such approach in his JAIR paper
-                    //if (trueFeatureSize > maxFeatVectorNorm) {
-                    //    maxFeatVectorNorm = trueFeatureSize;
-                    //    learningRate = alpha / maxFeatVectorNorm;
-                    //}
-                    //if (truePlanFeatureSize > maxPlanFeatVectorNorm) {
-                    //    maxPlanFeatVectorNorm = truePlanFeatureSize;
-                    //    learningRate = alpha / maxPlanFeatVectorNorm;
-                    //}
                 }
                 ale.loadState();
                 features->setPrevBlobs(prevBlobsSave);
