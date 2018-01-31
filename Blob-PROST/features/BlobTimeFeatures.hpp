@@ -116,4 +116,8 @@ class BlobTimeFeatures : public Features::Features{
  		*/
 		long long getNumberOfFeatures();
         void clearCash();
+        vector<vector<tuple<int,int>>>& getPrevBlobs();
+        void setPrevBlobs(vector<vector<tuple<int,int>>>& newPrevBlobs);
+        vector<int>& getPrevBlobActiveColors();
+        void setPrevBlobActiveColors(vector<int>& newPrevBlobActiveColors);
 };

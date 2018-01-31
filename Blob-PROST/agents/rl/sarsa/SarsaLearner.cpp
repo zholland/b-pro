@@ -8,6 +8,10 @@
  **
  ** Author: Marlos C. Machado
  ***************************************************************************************/
+#ifndef MATHEMATICS_H
+#define MATHEMATICS_H
+#include "../../../common/Mathematics.hpp"
+#endif
 
 #ifndef TIMER_H
 #define TIMER_H
@@ -24,7 +28,7 @@
 using namespace std;
 //using google::dense_hash_map;
 
-SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *param,int seed) : RLLearner(ale, param,seed) {
+SarsaLearner::SarsaLearner(ALEInterface& ale, BlobTimeFeatures *features, Parameters *param,int seed) : RLLearner(ale, param,seed) {
     
     totalNumberFrames = 0.0;
     maxFeatVectorNorm = 1;
@@ -58,6 +62,7 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
         e.push_back(vector<float>());
         ePlan.push_back(vector<float>());
         w.push_back(vector<float>());
+        oldWeights.push_back(vector<float>());
         nonZeroElig.push_back(vector<long long>());
         planNonZeroElig.push_back(vector<long long>());
     }
@@ -87,18 +92,29 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, Features *features, Parameters *pa
 
 SarsaLearner::~SarsaLearner() {}
 
-void SarsaLearner::updateQValues(vector<long long> &Features, vector<float> &QValues) {
-    unsigned long long featureSize = Features.size();
+void SarsaLearner::updateQValuesWithWeights(vector<long long>& BlobTimeFeatures, vector<float>& QValues, vector<vector<float>>& weights) {
+    unsigned long long featureSize = BlobTimeFeatures.size();
     for (int a = 0; a < numActions; ++a) {
         float sumW = 0;
         for (unsigned long long i = 0; i < featureSize; ++i) {
-            sumW = sumW + w[a][Features[i]] * groups[Features[i]].numFeatures;
+            sumW = sumW + weights[a][BlobTimeFeatures[i]] * groups[BlobTimeFeatures[i]].numFeatures;
         }
         QValues[a] = sumW;
     }
 }
 
-void SarsaLearner::updateReplTrace(int action, vector<long long> &Features) {
+void SarsaLearner::updateQValues(vector<long long> &BlobTimeFeatures, vector<float> &QValues) {
+    unsigned long long featureSize = BlobTimeFeatures.size();
+    for (int a = 0; a < numActions; ++a) {
+        float sumW = 0;
+        for (unsigned long long i = 0; i < featureSize; ++i) {
+            sumW = sumW + w[a][BlobTimeFeatures[i]] * groups[BlobTimeFeatures[i]].numFeatures;
+        }
+        QValues[a] = sumW;
+    }
+}
+
+void SarsaLearner::updateReplTrace(int action, vector<long long> &BlobTimeFeatures) {
     //e <- gamma * lambda * e
     for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
         long long numNonZero = 0;
@@ -119,7 +135,7 @@ void SarsaLearner::updateReplTrace(int action, vector<long long> &Features) {
 
     //For all i in Fa:
     for (unsigned int i = 0; i < F.size(); i++) {
-        long long idx = Features[i];
+        long long idx = BlobTimeFeatures[i];
         //If the trace is zero it is not in the vector
         //of non-zeros, thus it needs to be added
         if (e[action][idx] == 0) {
@@ -129,7 +145,7 @@ void SarsaLearner::updateReplTrace(int action, vector<long long> &Features) {
     }
 }
 
-void SarsaLearner::updatePlanReplTrace(int action, vector<long long> &Features) {
+void SarsaLearner::updatePlanReplTrace(int action, vector<long long> &BlobTimeFeatures) {
     //e <- gamma * lambda * e
     for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
         long long numNonZero = 0;
@@ -150,7 +166,7 @@ void SarsaLearner::updatePlanReplTrace(int action, vector<long long> &Features) 
 
     //For all i in Fa:
     for (unsigned int i = 0; i < Fplan.size(); i++) {
-        long long idx = Features[i];
+        long long idx = BlobTimeFeatures[i];
         //If the trace is zero it is not in the vector
         //of non-zeros, thus it needs to be added
         if (ePlan[action][idx] == 0) {
@@ -160,7 +176,7 @@ void SarsaLearner::updatePlanReplTrace(int action, vector<long long> &Features) 
     }
 }
 
-void SarsaLearner::updateAcumTrace(int action, vector<long long> &Features) {
+void SarsaLearner::updateAcumTrace(int action, vector<long long> &BlobTimeFeatures) {
     //e <- gamma * lambda * e
     for (unsigned int a = 0; a < nonZeroElig.size(); a++) {
         long long numNonZero = 0;
@@ -181,7 +197,7 @@ void SarsaLearner::updateAcumTrace(int action, vector<long long> &Features) {
 
     //For all i in Fa:
     for (unsigned int i = 0; i < F.size(); i++) {
-        long long idx = Features[i];
+        long long idx = BlobTimeFeatures[i];
         //If the trace is zero it is not in the vector
         //of non-zeros, thus it needs to be added
         if (e[action][idx] == 0) {
@@ -319,7 +335,10 @@ void SarsaLearner::loadCheckPoint(ifstream &checkPointToLoad) {
     checkPointToLoad.close();
 }
 
-void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
+void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
+    std::string actionFileName = checkPointName + "-actions.txt";
+    std::ofstream actionFile;
+    actionFile.open(actionFileName.c_str());
 
     struct timeval tvBegin, tvEnd, tvDiff;
     vector<float> reward;
@@ -331,9 +350,42 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
     vector<int> episodeFrames;
     vector<double> episodeFps;
 
+    //std::random_device rd;  //Will be used to obtain a seed for the random number engine
+    //std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
+    //std::uniform_real_distribution<double> dis(0.0, 1.0);
+
+    vector<float> oldWeightsQ(numActions);
+
     int bufferIndex = 0;
-    vector<ALEState> stateBuffer(1);
-    ALEState firstState;
+    int maxBufferSize = 10000;
+    int actualBufferSize = planBufferSize;
+    if (planBufferSize < 0) {
+        actualBufferSize = maxBufferSize;
+    }
+
+    vector<ALEState> stateBuffer(actualBufferSize);
+    vector<vector<vector<tuple<int,int>>>> prevBlobsBuffer(actualBufferSize);
+    vector<vector<int>> prevBlobsActiveColorsBuffer(actualBufferSize);
+
+    vector<vector<tuple<int,int>>> prevBlobsSave;
+    vector<int> prevBlobsActiveColorsSave;
+/*
+vector<vector<tuple<int,int>>>& BlobTimeFeatures::getPrevBlobs(){
+    return previousBlobs;
+}
+
+void BlobTimeFeatures::setPrevBlobs(vector<vector<tuple<int,int>>>& newPrevBlobs){
+    previousBlobs = newPrevBlobs;
+}
+
+vector<int>& BlobTimeFeatures::getPrevBlobActiveColors() {
+    return previousBlobActiveColors;
+}
+
+void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveColors) {
+    previousBlobActiveColors = newPrevBlobActiveColors;
+}  */
+//    ALEState firstState;
 
     long long trueFeatureSize = 0;
     long long truePlanFeatureSize = 0;
@@ -345,6 +397,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
     //Repeat (for each episode):
     //This is going to be interrupted by the ALE code since I set max_num_frames beforehand
     for (int episode = episodePassed + 1; totalNumberFrames < totalNumberOfFramesToLearn; episode++) {
+        //firstState = ale.cloneState();
         //random no-op
         unsigned int noOpNum = 0;
         if (randomNoOp) {
@@ -363,7 +416,6 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
             nonZeroElig[a].clear();
         }
 
-        firstState = ale.cloneState();
 
         F.clear();
         features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), F);
@@ -396,8 +448,20 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 groupFeatures(Fnext);
                 updateQValues(Fnext, Qnext);     //Update Q-values for the new active features
                 nextAction = epsilonGreedy(Qnext, episode);
-//                stateBuffer[bufferIndex % planBufferSize] = ale.cloneState();
-//                bufferIndex += 1;
+                if (bufferIndex > actualBufferSize && planBufferSize < 0) {
+                   if ((float) rand()/RAND_MAX < (float) actualBufferSize / bufferIndex) {
+                       int randIndex = rand() % actualBufferSize;
+                       stateBuffer[randIndex] = ale.cloneState();
+                       prevBlobsBuffer[randIndex] = features->getPrevBlobs();
+                       prevBlobsActiveColorsBuffer[randIndex] = features->getPrevBlobActiveColors();
+                   }
+                } else {
+                    stateBuffer[bufferIndex % actualBufferSize] = ale.cloneState();
+                    prevBlobsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobs();
+                    prevBlobsActiveColorsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobActiveColors();
+
+                }
+                bufferIndex += 1;
             } else {
                 nextAction = 0;
                 for (unsigned int i = 0; i < Qnext.size(); i++) {
@@ -420,14 +484,18 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                 }
             }
             // Planning step
-            if (stepCount * 5 < totalNumberOfFramesToLearn) {
+            if (bufferIndex > maxBufferSize && totalNumberFrames < totalNumberOfFramesToLearn) {
                 ale.saveState();
+                prevBlobsSave = features->getPrevBlobs();
+                prevBlobsActiveColorsSave = features->getPrevBlobActiveColors();
                 for (int n = 0; n < planningIterations; n++) {
-                    //int idx = rand() % bufferSize;
-                    //cout << idx << "\n";
-//                    ALEState state = stateBuffer[rand() % planBufferSize];
-                    ale.restoreState(firstState);
-
+                    oldWeights.clear();
+                    oldWeights = w;
+                    int idx = rand() % actualBufferSize;
+                    ALEState state = stateBuffer[idx];
+                    ale.restoreState(state);
+                    features->setPrevBlobs(prevBlobsBuffer[idx]);
+                    features->setPrevBlobActiveColors(prevBlobsActiveColorsBuffer[idx]);
                     // Clean plan traces
                     for (unsigned int a = 0; a < planNonZeroElig.size(); a++) {
                         for (unsigned long long i = 0; i < planNonZeroElig[a].size(); i++) {
@@ -443,19 +511,23 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
 
                     Fplan.clear();
                     features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
-                    truePlanFeatureSize = Fplan.size();
+                    //truePlanFeatureSize = Fplan.size();
+                    trueFeatureSize = Fplan.size();
                     groupPlanFeatures(Fplan);
                     updateQValues(Fplan, Q);
 
                     currentPlanAction = epsilonGreedy(Q, episode);
-
-                    while (!ale.game_over()) {
+                    
+                    actionFile<<totalNumberFrames<<std::endl;
+                    while (!ale.game_over() && k < planningSteps) {
                         k += 1;
 
                         reward.clear();
                         reward.push_back(0.0);
                         reward.push_back(0.0);
                         updateQValues(Fplan, Q);
+                        updateQValuesWithWeights(Fplan, oldWeightsQ, oldWeights);
+                        actionFile<<Mathematics::argmax(Q)<<" "<<Mathematics::argmax(oldWeightsQ)<<std::endl;
                         updatePlanReplTrace(currentPlanAction, Fplan);
 
                         //sanityCheck();
@@ -466,7 +538,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                             //Obtain active features in the new state:
                             FnextPlan.clear();
                             features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), FnextPlan);
-                            truePlanFnextSize = FnextPlan.size();
+                            //truePlanFnextSize = FnextPlan.size();
+                            trueFnextSize = FnextPlan.size();
                             groupPlanFeatures(FnextPlan);
                             updateQValues(FnextPlan, Qnext);     //Update Q-values for the new active features
                             nextPlanAction = epsilonGreedy(Qnext, episode);
@@ -475,6 +548,12 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                             for (unsigned int i = 0; i < Qnext.size(); i++) {
                                 Qnext[i] = 0;
                             }
+                        }
+                        //To ensure the learning rate will never increase along
+                        //the time, Marc used such approach in his JAIR paper
+                        if (trueFeatureSize > maxFeatVectorNorm) {
+                            maxFeatVectorNorm = trueFeatureSize;
+                            learningRate = alpha / maxFeatVectorNorm;
                         }
                         delta = reward[0] + gamma * Qnext[nextPlanAction] - Q[currentPlanAction];
 
@@ -487,17 +566,25 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
                         }
 
                         Fplan = FnextPlan;
-                        truePlanFeatureSize = truePlanFnextSize;
+                        //truePlanFeatureSize = truePlanFnextSize;
+                        trueFeatureSize = trueFnextSize;
                         currentPlanAction = nextPlanAction;
                     }
-                    //To ensure the learning rate will never increase along
-                    //the time, Marc used such approach in his JAIR paper
-//                    if (truePlanFeatureSize > maxPlanFeatVectorNorm) {
-//                        maxPlanFeatVectorNorm = truePlanFeatureSize;
-//                        learningRate = alpha / maxPlanFeatVectorNorm;
-//                    }
+                    ////To ensure the learning rate will never increase along
+                    ////the time, Marc used such approach in his JAIR paper
+                    //if (trueFeatureSize > maxFeatVectorNorm) {
+                    //    maxFeatVectorNorm = trueFeatureSize;
+                    //    learningRate = alpha / maxFeatVectorNorm;
+                    //}
+                    //if (truePlanFeatureSize > maxPlanFeatVectorNorm) {
+                    //    maxPlanFeatVectorNorm = truePlanFeatureSize;
+                    //    learningRate = alpha / maxPlanFeatVectorNorm;
+                    //}
                 }
                 ale.loadState();
+                features->setPrevBlobs(prevBlobsSave);
+                features->setPrevBlobActiveColors(prevBlobsActiveColorsSave);
+
             } // End planning
             F = Fnext;
             trueFeatureSize = trueFnextSize;
@@ -525,9 +612,10 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, Features *features) {
             saveThreshold += saveWeightsEveryXFrames;
         }
     }
+    actionFile.close();
 }
 
-void SarsaLearner::evaluatePolicy(ALEInterface &ale, Features *features) {
+void SarsaLearner::evaluatePolicy(ALEInterface &ale, BlobTimeFeatures *features) {
     double reward = 0;
     double cumReward = 0;
     double prevCumReward = 0;
@@ -565,7 +653,7 @@ void SarsaLearner::evaluatePolicy(ALEInterface &ale, Features *features) {
             features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), F);
             groupFeatures(F);
             updateQValues(F, Q);       //Update Q-values for each possible action
-            currentAction = epsilonGreedy2(Q);
+            currentAction = epsilonGreedy(Q);
             //Take action, observe reward and next state:
             //ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
             reward = ale.act(actions[currentAction]);
@@ -611,6 +699,7 @@ void SarsaLearner::groupFeatures(vector<long long> &activeFeatures) {
                 groups.push_back(agroup);
                 for (unsigned int action = 0; action < w.size(); ++action) {
                     w[action].push_back(0.0);
+                    oldWeights[action].push_back(0.0);
                     e[action].push_back(0.0);
                     ePlan[action].push_back(0.0);
                 }
@@ -647,6 +736,7 @@ void SarsaLearner::groupFeatures(vector<long long> &activeFeatures) {
             activeFeatures.push_back(numGroups - 1);
             for (unsigned a = 0; a < w.size(); ++a) {
                 w[a].push_back(w[a][groupIndex]);
+                oldWeights[a].push_back(oldWeights[a][groupIndex]);
                 e[a].push_back(e[a][groupIndex]);
                 ePlan[a].push_back(e[a][groupIndex]);
                 if (e[a].back() >= traceThreshold) {
@@ -680,6 +770,7 @@ void SarsaLearner::groupPlanFeatures(vector<long long> &activeFeatures) {
                 groups.push_back(agroup);
                 for (unsigned int action = 0; action < w.size(); ++action) {
                     w[action].push_back(0.0);
+                    oldWeights[action].push_back(0.0);
                     e[action].push_back(0.0);
                     ePlan[action].push_back(0.0);
                 }
@@ -716,6 +807,7 @@ void SarsaLearner::groupPlanFeatures(vector<long long> &activeFeatures) {
             activeFeatures.push_back(numGroups - 1);
             for (unsigned a = 0; a < w.size(); ++a) {
                 w[a].push_back(w[a][groupIndex]);
+                oldWeights[a].push_back(oldWeights[a][groupIndex]);
                 e[a].push_back(e[a][groupIndex]);
                 ePlan[a].push_back(e[a][groupIndex]);
                 if (ePlan[a].back() >= traceThreshold) {

@@ -54,7 +54,7 @@ int main(int argc, char** argv){
 	
 	ALEInterface ale(param.getDisplay());
 
-	ale.setFloat("repeat_action_probability", 0.00);
+	ale.setFloat("repeat_action_probability", 0.25);
 	ale.setInt("random_seed", 2*param.getSeed());
 	ale.setInt("frame_skip", param.getNumStepsPerAction());
 	ale.setInt("max_num_frames_per_episode", param.getEpisodeLength());

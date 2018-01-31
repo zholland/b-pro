@@ -79,7 +79,7 @@ public:
         * @param Features *features object that defines what feature function that will be used by the RL
         *        agents.
         */
-    virtual void learnPolicy(ALEInterface& ale, Features *features) = 0;
+    virtual void learnPolicy(ALEInterface& ale, BlobTimeFeatures *features) = 0;
     
     /**
      * Pure virtual method that needs to be implemented by any agent. Once the agent learned a
@@ -93,7 +93,7 @@ public:
      * @param Features *features object that defines what feature function that will be used by the RL
      *        agents. It may be null for other approaches as in Planning.
      */
-    virtual void evaluatePolicy(ALEInterface& ale, Features *features) = 0;
+    virtual void evaluatePolicy(ALEInterface& ale, BlobTimeFeatures *features) = 0;
     
     /**
      * Destructor, not necessary in this class.

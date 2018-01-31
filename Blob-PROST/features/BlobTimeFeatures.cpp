@@ -425,3 +425,23 @@ void BlobTimeFeatures::clearCash(){
     previousBlobs.clear();
     previousBlobActiveColors.clear();
 }
+
+//        vector<vector<tuple<int,int>>> previousBlobs;
+//        vector<int> previousBlobActiveColors;
+
+vector<vector<tuple<int,int>>>& BlobTimeFeatures::getPrevBlobs(){
+    return previousBlobs;
+}
+
+void BlobTimeFeatures::setPrevBlobs(vector<vector<tuple<int,int>>>& newPrevBlobs){
+    previousBlobs = newPrevBlobs;
+}
+
+vector<int>& BlobTimeFeatures::getPrevBlobActiveColors() {
+    return previousBlobActiveColors;
+}
+
+void BlobTimeFeatures::setPrevBlobActiveColors(vector<int>& newPrevBlobActiveColors) {
+    previousBlobActiveColors = newPrevBlobActiveColors;
+}
+

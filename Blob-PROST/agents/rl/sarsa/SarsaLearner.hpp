@@ -61,6 +61,7 @@ private:
     vector<vector<float> > e;       //Eligibility trace
     vector<vector<float> > ePlan;       //Eligibility trace
     vector<vector<float> > w;     //Theta, weights vector
+    vector<vector<float> > oldWeights;     //Theta, weights vector
     vector<vector<long long>> nonZeroElig;//To optimize the implementation
     vector<vector<long long>> planNonZeroElig;//To optimize the implementation
     //vector<vector<long long> > featureSeen;
@@ -83,20 +84,21 @@ private:
      * It updates the vector<double> Q assuming that vector<int> F is filled, as it sums just the weights
      * that are active in F.
      */
-    void updateQValues(vector<long long> &Features, vector<float> &QValues);
+    void updateQValues(vector<long long> &BlobTimeFeatures, vector<float> &QValues);
+    void updateQValuesWithWeights(vector<long long> &BlobTimeFeatures, vector<float> &QValues, vector<vector<float>>& weights);
     /**
      * When using Replacing traces, all values not related to the current action are set to 0, while the
      * values for the current action that their features are active are set to 1. The traces decay following
      * the rule: e[action][i] = gamma * lambda * e[action][i]. It is possible to also define thresholding.
      */
-    void updateReplTrace(int action, vector<long long> &Features);
-    void updatePlanReplTrace(int action, vector<long long> &Features);
+    void updateReplTrace(int action, vector<long long> &BlobTimeFeatures);
+    void updatePlanReplTrace(int action, vector<long long> &BlobTimeFeatures);
     /**
      * When using Replacing traces, all values not related to the current action are set to 0, while the
      * values for the current action that their features are active are added 1. The traces decay following
      * the rule: e[action][i] = gamma * lambda * e[action][i]. It is possible to also define thresholding.
      */
-    void updateAcumTrace(int action, vector<long long> &Features);
+    void updateAcumTrace(int action, vector<long long> &BlobTimeFeatures);
     /**
      * Prints the weights in a file. Each line will contain a weight.
      */
@@ -110,7 +112,7 @@ private:
     void groupFeatures(vector<long long>& activeFeatures);
     void groupPlanFeatures(vector<long long>& activeFeatures);
 public:
-    SarsaLearner(ALEInterface& ale, Features *features, Parameters *param,int seed);
+    SarsaLearner(ALEInterface& ale, BlobTimeFeatures *features, Parameters *param,int seed);
     /**
      * Implementation of an agent controller. This implementation is Sarsa(lambda).
      *
@@ -118,7 +120,7 @@ public:
      *        actions, obtain simulator's screen, RAM, etc.
      * @param Features *features object that defines what feature function that will be used.
      */
-    void learnPolicy(ALEInterface& ale, Features *features);
+    void learnPolicy(ALEInterface& ale, BlobTimeFeatures *features);
     /**
      * After the policy was learned it is necessary to evaluate its quality. Therefore, a given number
      * of episodes is run without learning (the vector of weights and the trace are not updated).
@@ -127,7 +129,7 @@ public:
      *        actions, obtain simulator's screen, RAM, etc.
      * @param Features *features object that defines what feature function that will be used.
      */
-    void evaluatePolicy(ALEInterface& ale, Features *features);
+    void evaluatePolicy(ALEInterface& ale, BlobTimeFeatures *features);
     /**
      * Destructor, not necessary in this class.
      */
