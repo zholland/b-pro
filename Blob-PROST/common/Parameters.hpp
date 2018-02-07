@@ -26,6 +26,9 @@ private:
     std::string modelPath;          //path to the file containing the model learned by the logistic regression
     std::string fileWithWeights;    //path to the file that we will write the weights after we are done learning
     std::string checkPointName;     //name to save the temporary local checkPoint
+    std::string backgroundPath;
+    std::string palettePath;
+    std::string learnedModelPath;
     int toSaveCheckPoint;
     std::string pathToWeightsFiles; //path to the file that we will load the weights from
     double alpha;                   //learning rate
@@ -118,6 +121,13 @@ private:
      * @param std::string name path to the rom file to be executed
      */
     void setRomPath(std::string name);
+
+    void setBackgroundPath(std::string name);
+
+    void setPalettePath(std::string name);
+
+    void setLearnedModelPath(std::string name);
+
     /**
      * @param std::string name path to the config file to be parsed
      */
@@ -262,6 +272,13 @@ public:
      * @return std::string path to the rom file that will be/was executed as the game
      */
     std::string getRomPath();
+
+    std::string getBackgroundPath();
+
+    std::string getPalettePath();
+
+    std::string getLearnedModelPath();
+
     /**
      * @return std::string path to the model file that will be used by the logistic regression
      */

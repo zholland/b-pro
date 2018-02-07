@@ -61,6 +61,10 @@ SarsaLearner::SarsaLearner(ALEInterface& ale, BlobTimeFeatures *features, Parame
     noOpMax = param->getNoOpMax();
     numStepsPerAction = param->getNumStepsPerAction();
 
+    backgroundPath = param->getBackgroundPath();
+    palettePath = param->getPalettePath();
+    modelPath = param->getLearnedModelPath();
+
     planningSteps = param->getPlanningSteps();
     planningIterations = param->getPlanningIterations();
     planBufferSize = param->getPlanBufferSize();
@@ -362,6 +366,34 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
     std::ofstream actionFile;
     actionFile.open(actionFileName.c_str());
 
+    // Load background
+    ifstream inFile;
+    inFile.open(backgroundPath.c_str());
+    if (!inFile) {
+        std::cerr << "Unable to open file: "<<backgroundPath;
+        exit(1);   // call system to stop
+    }
+    vector<float> backgroundChannelMeans(3);
+    float value;
+    int channel = 0;
+    while (inFile >> value) {
+        backgroundChannelMeans[channel] = value;
+        channel+=1;
+    }
+    inFile.close();
+    // Load palette
+    inFile.open(palettePath.c_str());
+    if (!inFile) {
+        std::cerr << "Unable to open file: "<<palettePath;
+        exit(1);   // call system to stop
+    }
+    vector<int> palette;
+    int paletteIndex;
+    while (inFile >> paletteIndex) {
+        palette.push_back(paletteIndex);
+    }
+    inFile.close();
+
     struct timeval tvBegin, tvEnd, tvDiff;
     vector<float> reward;
     double elapsedTime;
@@ -386,6 +418,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
     }
 
     vector<ALEState> stateBuffer(actualBufferSize);
+    vector<ALEScreen> screenBuffer(actualBufferSize, ale.getScreen());
     vector<float> rewardBuffer(actualBufferSize);
     vector<vector<vector<tuple<int,int>>>> prevBlobsBuffer(actualBufferSize);
     vector<vector<int>> prevBlobsActiveColorsBuffer(actualBufferSize);
@@ -400,8 +433,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
 
     int stepCount = 0;
 
-    const string pathToGraph = "/home/zach/data_and_checkpoints/reward_fixed_hist_128/checkpoints_seaquest_fulldecode/checkpoint_inference.meta";
-    const string checkpointPath = "/home/zach/data_and_checkpoints/reward_fixed_hist_128/checkpoints_seaquest_fulldecode/checkpoint_inference";
+    const string pathToGraph = modelPath + "/checkpoint_inference.meta";
+    const string checkpointPath = modelPath + "/checkpoint_inference";
     // Init tensorflow session
     tensorflow::SessionOptions options;
     tensorflow::ConfigProto & config = options.config;
@@ -495,16 +528,17 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                    if ((float) rand()/RAND_MAX < (float) actualBufferSize / bufferIndex) {
                        int randIndex = rand() % actualBufferSize;
                        stateBuffer[randIndex] = ale.cloneState();
+                       screenBuffer[randIndex] = ale.cloneScreen();
                        rewardBuffer[randIndex] = reward[1];
                        prevBlobsBuffer[randIndex] = features->getPrevBlobs();
                        prevBlobsActiveColorsBuffer[randIndex] = features->getPrevBlobActiveColors();
                    }
                 } else {
                     stateBuffer[bufferIndex % actualBufferSize] = ale.cloneState();
+                    screenBuffer[bufferIndex % actualBufferSize] = ale.cloneScreen();
                     rewardBuffer[bufferIndex % actualBufferSize] = reward[1];
                     prevBlobsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobs();
                     prevBlobsActiveColorsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobActiveColors();
-
                 }
                 bufferIndex += 1;
             } else {
@@ -538,7 +572,9 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
 //                    oldWeights = w;
                     int idx = rand() % (actualBufferSize - 4);
                     ALEState state = stateBuffer[idx];
+                    ALEScreen screen = screenBuffer[idx];
                     ale.restoreState(state);
+                    ale.restoreScreen(screen);
                     features->setPrevBlobs(prevBlobsBuffer[idx]);
                     features->setPrevBlobActiveColors(prevBlobsActiveColorsBuffer[idx]);
 
@@ -553,6 +589,8 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                         groupPlanFeatures(Fplan);
                         state = stateBuffer[idx+h];
                         ale.restoreState(state);
+                        screen = screenBuffer[idx+h];
+                        ale.restoreScreen(screen);
                         ale.getScreenRGB(rawFrameHistoryVec[h]);
                         rewardHistoryVec[h-1] = rewardBuffer[idx+h];
                     }
@@ -565,11 +603,11 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                         for (int y = 0; y < height; y++) {
                             for (int x = 0; x < width; x++) {
                                 frame_history.tensor<float, 4>()(0, y, x, h*3+0) =
-                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 0] - 32.0694) / 255.0;
+                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 0] - backgroundChannelMeans[0]) / 255.0;
                                 frame_history.tensor<float, 4>()(0, y, x, h*3+1) =
-                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 1] - 44.1966) / 255.0;
+                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 1] - backgroundChannelMeans[1]) / 255.0;
                                 frame_history.tensor<float, 4>()(0, y, x, h*3+2) =
-                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 2] - 111.029)/ 255.0;
+                                        ((float) rawFrameHistoryVec[h][3 * width * y + 3 * x + 2] - backgroundChannelMeans[2])/ 255.0;
                             }
                         }
                     }
@@ -580,7 +618,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                         reward_history.tensor<float, 2>()(0, h) = rewardHistoryVec[h];
                     }
 
-                    Tensor actions(DT_FLOAT, TensorShape({1, 1, 18}));
+                    Tensor actions(DT_FLOAT, TensorShape({1, 1, ale.getMinimalActionSet().size()}));
                     std::vector<std::pair<string, tensorflow::Tensor>> inputs = {
                             { "frame_history", frame_history },
                             { "reward_history", reward_history },
@@ -623,7 +661,7 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                         //sanityCheck();
                         //Take action, observe reward and next state:
 //                        act(ale, currentPlanAction, reward);
-                        oneHot(actions, 18, currentPlanAction);
+                        oneHot(actions, ale.getMinimalActionSet().size(), currentPlanAction);
 //                        std::cout<<currentPlanAction<<std::endl;
 
                         // The session will initialize the outputs
@@ -647,13 +685,13 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
 
                         for (int y = 0; y < height; y++) {
                             for (int x = 0; x < width; x++) {
-                                rgbScreen[3 * width * y + 3 * x + 0] = (unsigned char) std::max(std::min((image_float(0, y, x, 0) * 255.0 + 32.0694), 255.0), 0.0);
-                                rgbScreen[3 * width * y + 3 * x + 1] = (unsigned char) std::max(std::min((image_float(0, y, x, 1) * 255.0 + 44.1966), 255.0), 0.0);
-                                rgbScreen[3 * width * y + 3 * x + 2] = (unsigned char) std::max(std::min((image_float(0, y, x, 2) * 255.0 + 111.029), 255.0), 0.0);
+                                rgbScreen[3 * width * y + 3 * x + 0] = (unsigned char) std::max(std::min((image_float(0, y, x, 0) * 255.0 + backgroundChannelMeans[0]), 255.0), 0.0);
+                                rgbScreen[3 * width * y + 3 * x + 1] = (unsigned char) std::max(std::min((image_float(0, y, x, 1) * 255.0 + backgroundChannelMeans[1]), 255.0), 0.0);
+                                rgbScreen[3 * width * y + 3 * x + 2] = (unsigned char) std::max(std::min((image_float(0, y, x, 2) * 255.0 + backgroundChannelMeans[2]), 255.0), 0.0);
                             }
                         }
 
-                        ale.getALEScreenFromRGB(rgbScreen, predicted_screen);
+                        ale.getALEScreenFromRGB(rgbScreen, predicted_screen, palette);
 
                         stepCount += 1;
                         if (!ale.game_over()) {

@@ -44,6 +44,11 @@ private:
     
     std::string nameWeightsFile, pathWeightsFileToLoad;
     std::string checkPointName;
+
+    std::string backgroundPath;
+    std::string palettePath;
+    std::string modelPath;
+
     std::string nameForLearningCondition;
     int episodePassed;
     int totalNumberFrames;

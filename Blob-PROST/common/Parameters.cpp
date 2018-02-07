@@ -33,6 +33,9 @@ void Parameters::printHelp(char** argv){
     printf("   -s     %s[REQUIRED]%s seed to random number generator.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
     printf("   -c     %s[REQUIRED]%s path to file with configuration info.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
     printf("   -r     %s[REQUIRED]%s path to the rom to be played by the agent.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
+    printf("   -b     %s[REQUIRED]%s path to the background file for the game.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
+    printf("   -p     %s[REQUIRED]%s path to the palette file for the game.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
+    printf("   -m     %s[REQUIRED]%s path to the learned model for the game.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
     printf("   -t     %s[REQUIRED IF SAVE_TRAJECTORY = 1]%s path to file that will store the agent's trajectory.\n", ANSI_COLOR_RED, ANSI_COLOR_RESET);
     printf("   -w     If one wants to save intermediate weights, this is prefix to files that will store the agent's learned weights every FREQUENCY_SAVING episodes.\n");
     printf("   -l     If one wants to load an stored set of weights, this should contain the path to such file.\n");
@@ -44,8 +47,9 @@ void Parameters::printHelp(char** argv){
 Parameters::Parameters(int argc, char** argv){
     
     this->setSaveTrajectoryPath("");
-    
+    printf("loading args\n");
     this->readParameters(argc, argv);
+    printf("DONE loading args\n");
     //Get the game being played by the path to ROM:
     size_t pos = 0;
     std::string token;
@@ -57,6 +61,8 @@ Parameters::Parameters(int argc, char** argv){
     }
     //The game is what was left in toParse, now I get the first part, without extension:
     this->gameBeingPlayed = toParse.substr(0, toParse.find("."));
+
+    printf("loading config file\n");
     this->parseParametersFromConfigFile(this->getConfigPath());
     //If the user requested the agent to save features/trajectories he must inform the destination
     if(this->toSaveTrajectory && this->getSaveTrajectoryPath().compare("") == 0){
@@ -95,8 +101,9 @@ void Parameters::readParameters(int argc, char* argv[]){
     this->setToLoadWeights(0);
     this->setToSaveWeightsAfterLearning(0);
     this->setToSaveCheckPoint(0);
-    while ((option = getopt(argc, argv, "c:r:s:t:w:l:n:h")) != -1)
+    while ((option = getopt(argc, argv, "c:r:s:t:w:l:n:b:p:m:h")) != -1)
     {
+        printf("parsing options...\n");
         if (option == -1){
             break;
         }
@@ -110,6 +117,18 @@ void Parameters::readParameters(int argc, char* argv[]){
                 exit(-1);
             case 'r':
                 this->setRomPath(optarg);
+                break;
+            case 'b':
+                printf("setBackgroundPath... %s\n", optarg);
+                this->setBackgroundPath(optarg);
+                break;
+            case 'p':
+                printf("setPalettePath... %s\n", optarg);
+                this->setPalettePath(optarg);
+                break;
+            case 'm':
+                printf("setLearnedModelPath... %s\n", optarg);
+                this->setLearnedModelPath(optarg);
                 break;
             case 't':
                 this->setSaveTrajectoryPath(optarg);
@@ -140,8 +159,14 @@ void Parameters::readParameters(int argc, char* argv[]){
                 exit(-1);
         }
     }
+    printf("checkSet...\n");
     //Check if all parameters were properly set, otherwise interrupt
-    if(this->getRomPath().compare("") == 0 || this->getConfigPath().compare("") == 0 || this->getSeed() == 0){
+    if(this->getRomPath().compare("") == 0
+       || this->getBackgroundPath().compare("") == 0
+       || this->getPalettePath().compare("") == 0
+       || this->getLearnedModelPath().compare("") == 0
+       || this->getConfigPath().compare("") == 0
+       || this->getSeed() == 0){
         printHelp(argv);
         exit(-1);
     }
@@ -287,6 +312,30 @@ void Parameters::setRomPath(std::string name){
 
 std::string Parameters::getRomPath(){
     return this->romPath;
+}
+
+void Parameters::setBackgroundPath(std::string name){
+    this->backgroundPath = name;
+}
+
+std::string Parameters::getBackgroundPath(){
+    return this->backgroundPath;
+}
+
+void Parameters::setPalettePath(std::string name){
+    this->palettePath = name;
+}
+
+std::string Parameters::getPalettePath(){
+    return this->palettePath;
+}
+
+void Parameters::setLearnedModelPath(std::string name){
+    this->learnedModelPath = name;
+}
+
+std::string Parameters::getLearnedModelPath(){
+    return this->learnedModelPath;
 }
 
 void Parameters::setConfigPath(std::string name){
