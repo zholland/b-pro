@@ -546,6 +546,23 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                 for (unsigned int i = 0; i < Qnext.size(); i++) {
                     Qnext[i] = 0;
                 }
+                if (bufferIndex > actualBufferSize && planBufferSize < 0) {
+                    if ((float) rand()/RAND_MAX < (float) actualBufferSize / bufferIndex) {
+                        int randIndex = rand() % actualBufferSize;
+                        stateBuffer[randIndex] = ale.cloneState();
+                        screenBuffer[randIndex] = ale.cloneScreen();
+                        rewardBuffer[randIndex] = reward[1];
+                        prevBlobsBuffer[randIndex] = features->getPrevBlobs();
+                        prevBlobsActiveColorsBuffer[randIndex] = features->getPrevBlobActiveColors();
+                    }
+                } else {
+                    stateBuffer[bufferIndex % actualBufferSize] = ale.cloneState();
+                    screenBuffer[bufferIndex % actualBufferSize] = ale.cloneScreen();
+                    rewardBuffer[bufferIndex % actualBufferSize] = reward[1];
+                    prevBlobsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobs();
+                    prevBlobsActiveColorsBuffer[bufferIndex % actualBufferSize] = features->getPrevBlobActiveColors();
+                }
+                bufferIndex += 1;
             }
             //To ensure the learning rate will never increase along
             //the time, Marc used such approach in his JAIR paper
@@ -562,37 +579,66 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                     w[a][idx] = w[a][idx] + learningRate * delta * e[a][idx];
                 }
             }
+
+            bool invalid_history;
             // Planning step
             if (bufferIndex > maxBufferSize && totalNumberFrames < totalNumberOfFramesToLearn) {
                 ale.saveState();
                 prevBlobsSave = features->getPrevBlobs();
                 prevBlobsActiveColorsSave = features->getPrevBlobActiveColors();
                 for (int n = 0; n < planningIterations; n++) {
+                    invalid_history = false;
 //                    oldWeights.clear();
 //                    oldWeights = w;
-                    int idx = rand() % (actualBufferSize - 4);
-                    ALEState state = stateBuffer[idx];
-                    ALEScreen screen = screenBuffer[idx];
+                    int currentIndex = bufferIndex % actualBufferSize;
+                    int startIndex;
+
+                    bool resample = true;
+                    while (resample) {
+                        startIndex = rand() % actualBufferSize;
+                        if (startIndex > currentIndex && actualBufferSize - (startIndex - currentIndex) >= 4) {
+                            resample = false;
+                        } else if (startIndex <= currentIndex && currentIndex - startIndex >= 4) {
+                            resample = false;
+                        }
+                    }
+
+                    ALEState state = stateBuffer[startIndex % actualBufferSize];
+                    ALEScreen screen = screenBuffer[startIndex % actualBufferSize];
                     ale.restoreState(state);
                     ale.restoreScreen(screen);
-                    features->setPrevBlobs(prevBlobsBuffer[idx]);
-                    features->setPrevBlobActiveColors(prevBlobsActiveColorsBuffer[idx]);
+                    features->setPrevBlobs(prevBlobsBuffer[startIndex % actualBufferSize]);
+                    features->setPrevBlobActiveColors(prevBlobsActiveColorsBuffer[startIndex % actualBufferSize]);
+                    if (ale.game_over())
+                        invalid_history = true;
 
                     // Prime history
                     std::vector<std::vector<unsigned char>> rawFrameHistoryVec(4);
                     ale.getScreenRGB(rawFrameHistoryVec[0]);
                     std::vector<float> rewardHistoryVec(3);
 
+                    if (n % 5 == 0)
+                        ale.saveScreenPNG("/home/zach/b-pro/"+ std::to_string(n) + "h0.png");
+
                     for (int h = 1; h < 4; h++) {
                         Fplan.clear();
                         features->getActiveFeaturesIndices(ale.getScreen(), ale.getRAM(), Fplan);
                         groupPlanFeatures(Fplan);
-                        state = stateBuffer[idx+h];
+                        state = stateBuffer[(startIndex+h) % actualBufferSize];
                         ale.restoreState(state);
-                        screen = screenBuffer[idx+h];
+                        if (ale.game_over())
+                            invalid_history = true;
+                        screen = screenBuffer[(startIndex+h) % actualBufferSize];
                         ale.restoreScreen(screen);
                         ale.getScreenRGB(rawFrameHistoryVec[h]);
-                        rewardHistoryVec[h-1] = rewardBuffer[idx+h];
+                        rewardHistoryVec[h-1] = rewardBuffer[(startIndex + h) % actualBufferSize];
+                        if (n % 5 == 0)
+                            ale.saveScreenPNG("/home/zach/b-pro/" + std::to_string(n) + "h" + std::to_string(h) + ".png");
+                    }
+
+                    if (invalid_history) {
+                        n -= 1;
+                        continue;
                     }
 
                     int height = 210;
@@ -693,6 +739,13 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
 
                         ale.getALEScreenFromRGB(rgbScreen, predicted_screen, palette);
 
+                        // For debugging
+                        if (n % 5 == 0) {
+                            ale.restoreScreen(predicted_screen);
+                            ale.saveScreenPNG("/home/zach/b-pro/" + std::to_string(n) +"p" + std::to_string(k - 1) + ".png");
+                        }
+                        //
+
                         stepCount += 1;
                         if (!ale.game_over()) {
                             //Obtain active features in the new state:
@@ -727,8 +780,35 @@ void SarsaLearner::learnPolicy(ALEInterface &ale, BlobTimeFeatures *features) {
                         Fplan = FnextPlan;
                         trueFeatureSize = trueFnextSize;
                         currentPlanAction = nextPlanAction;
+                        // Set up tensors for next step
+                        if (k < planningSteps) {
+                            // Image History
+                            for (int h = 0; h < 3; h++) {
+                                for (int y = 0; y < height; y++) {
+                                    for (int x = 0; x < width; x++) {
+                                        frame_history.tensor<float, 4>()(0, y, x, h*3+0) = frame_history.tensor<float, 4>()(0, y, x, (h+1)*3+0);
+                                        frame_history.tensor<float, 4>()(0, y, x, h*3+1) = frame_history.tensor<float, 4>()(0, y, x, (h+1)*3+1);
+                                        frame_history.tensor<float, 4>()(0, y, x, h*3+2) = frame_history.tensor<float, 4>()(0, y, x, (h+1)*3+2);
+                                    }
+                                }
+                            }
+                            for (int y = 0; y < height; y++) {
+                                for (int x = 0; x < width; x++) {
+                                    frame_history.tensor<float, 4>()(0, y, x, 3*3+0) = image_float(0, y, x, 0);
+                                    frame_history.tensor<float, 4>()(0, y, x, 3*3+1) = image_float(0, y, x, 1);
+                                    frame_history.tensor<float, 4>()(0, y, x, 3*3+2) = image_float(0, y, x, 2);
+                                }
+                            }
+
+                            // Reward History
+                            for (int h = 0; h < 2; h++) {
+                                reward_history.tensor<float, 2>()(0, h) = reward_history.tensor<float, 2>()(0, h+1);
+                            }
+                            reward_history.tensor<float, 2>()(0, 2) = plan_reward(0);
+                        }
                     }
                 }
+                exit(1);
                 ale.loadState();
                 features->setPrevBlobs(prevBlobsSave);
                 features->setPrevBlobActiveColors(prevBlobsActiveColorsSave);
@@ -803,13 +883,13 @@ void SarsaLearner::evaluatePolicy(ALEInterface &ale, BlobTimeFeatures *features)
             updateQValues(F, Q);       //Update Q-values for each possible action
             currentAction = epsilonGreedy(Q);
             //Take action, observe reward and next state:
-            //ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
+            //ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".foo.png");
             reward = ale.act(actions[currentAction]);
             //actionRewardFile<<actions[currentAction]<<" "<<reward<<" "<<ale.game_over()<<std::endl;
             count++;
             cumReward += reward;
         }
-        //  ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".png");
+        //  ale.saveScreenPNG(recordPath + to_string(static_cast<long long>(count)) + ".foo.png");
         gettimeofday(&tvEnd, NULL);
         timeval_subtract(&tvDiff, &tvEnd, &tvBegin);
         elapsedTime = double(tvDiff.tv_sec) + double(tvDiff.tv_usec) / 1000000.0;
